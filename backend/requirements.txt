@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pymilvus
+python-multipart
+sqlalchemy
+aiosqlite
+openai
+pydantic-settings
+langchain-text-splitters
+pypdf
+tiktoken
+sentence-transformers
+greenlet

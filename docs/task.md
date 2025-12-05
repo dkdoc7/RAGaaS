@@ -1,0 +1,22 @@
+# RAG Management System (Milvus + React + FastAPI)
+
+- [x] Research Dify Knowledge feature <!-- id: 0 -->
+- [x] Create System Specification <!-- id: 1 -->
+    - [ ] Define Core Features <!-- id: 2 -->
+    - [ ] Define API Endpoints (FastAPI) <!-- id: 3 -->
+    - [ ] Define UI/UX (React) <!-- id: 4 -->
+    - [ ] Define Database Schema (Milvus + Metadata DB) <!-- id: 5 -->
+- [x] Initialize Project Structure <!-- id: 6 -->
+    - [x] Backend (FastAPI) Setup <!-- id: 7 -->
+    - [x] Frontend (React) Setup <!-- id: 8 -->
+- [x] Implement Backend <!-- id: 9 -->
+    - [x] Database & Milvus Connection <!-- id: 12 -->
+    - [x] Knowledge Base API <!-- id: 13 -->
+    - [x] Document Ingestion & Chunking (3 types) <!-- id: 14 -->
+    - [x] Retrieval API (Keyword, ANN, 2-Stage) <!-- id: 15 -->
+- [x] Implement Frontend <!-- id: 10 -->
+    - [x] Dashboard & Navigation <!-- id: 16 -->
+    - [x] Knowledge Base Management <!-- id: 17 -->
+    - [x] Document Upload & List <!-- id: 18 -->
+    - [x] Retrieval Playground <!-- id: 19 -->
+- [x] Integration and Verification <!-- id: 11 -->
