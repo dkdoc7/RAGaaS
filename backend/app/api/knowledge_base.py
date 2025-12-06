@@ -11,7 +11,12 @@ router = APIRouter()
 
 @router.post("/", response_model=KnowledgeBase)
 async def create_knowledge_base(kb: KnowledgeBaseCreate, db: AsyncSession = Depends(get_db)):
-    db_kb = KBModel(name=kb.name, description=kb.description)
+    db_kb = KBModel(
+        name=kb.name, 
+        description=kb.description,
+        chunking_strategy=kb.chunking_strategy,
+        chunking_config=kb.chunking_config
+    )
     db.add(db_kb)
     await db.commit()
     await db.refresh(db_kb)

@@ -169,6 +169,44 @@ npm run dev
 ### Retrieval
 - `POST /api/knowledge-bases/{kb_id}/retrieve` - 검색 수행
 
+## 추가 개선 사항
+
+초기 구현 이후 다음 기능들을 추가 및 개선했습니다:
+
+### 버그 수정
+1. **문서 삭제 버튼 수정**: onClick 핸들러 추가 및 이벤트 전파 방지
+2. **KB 삭제 버튼 수정**: Link 내부 버튼의 이벤트 전파 문제 해결 (`stopPropagation` 추가)
+3. **에러 핸들링 개선**: 문서 처리 실패 시 상태를 'error'로 업데이트
+
+### 기능 개선
+1. **자동 상태 새로고침**: Processing 상태 문서가 있을 때 3초마다 자동으로 상태 업데이트
+2. **환경 변수 템플릿**: `.env.example` 파일 생성으로 설정 가이드 제공
+3. **Setup 가이드**: OpenAI API 키 설정 방법 문서화 (`SETUP.md`)
+
+### GitHub 통합
+- Git 저장소 초기화
+- `.gitignore` 생성 (민감한 파일 제외)
+- `README.md` 작성 (프로젝트 설명 및 사용법)
+- GitHub에 푸시 완료: https://github.com/dkdoc7/RAGaaS
+
+## 데모
+
+### 프론트엔드 대시보드
+![Dashboard](file:///Users/dukekimm/.gemini/antigravity/brain/79d52c26-73ec-451b-b14c-157d9fe9b0bf/frontend_dashboard_1764858043171.webp)
+
+### 청크 뷰어 기능
+![Chunk Viewer](file:///Users/dukekimm/.gemini/antigravity/brain/79d52c26-73ec-451b-b14c-157d9fe9b0bf/chunk_viewer_demo_1764859767250.webp)
+
 ## 결론
 
 RAG 관리 시스템의 **핵심 기능은 모두 구현 완료**되었습니다. OpenAI API Key만 설정하면 즉시 사용 가능한 상태입니다. Dify Knowledge의 주요 기능(다중 KB 관리, 문서 업로드, 청킹, 검색)을 성공적으로 재현했으며, 2단계 검색 등 고급 기능도 추가했습니다.
+
+**주요 성과:**
+- ✅ 완전한 백엔드 API (FastAPI + Milvus)
+- ✅ 직관적인 프론트엔드 UI (React + TypeScript)
+- ✅ 3가지 청킹 전략 및 3가지 검색 방법
+- ✅ 문서 청크 뷰어 기능
+- ✅ 자동 상태 업데이트
+- ✅ GitHub 저장소 공개
+
+**GitHub 저장소**: https://github.com/dkdoc7/RAGaaS

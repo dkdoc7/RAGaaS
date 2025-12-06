@@ -9,17 +9,16 @@ const api = axios.create({
 
 export const kbApi = {
     list: () => api.get('/knowledge-bases/'),
-    create: (data: { name: string; description?: string }) => api.post('/knowledge-bases/', data),
+    create: (data: { name: string; description: string; chunking_strategy: string; chunking_config: any }) => api.post('/knowledge-bases/', data),
     get: (id: string) => api.get(`/knowledge-bases/${id}`),
     delete: (id: string) => api.delete(`/knowledge-bases/${id}`),
 };
 
 export const docApi = {
     list: (kbId: string) => api.get(`/knowledge-bases/${kbId}/documents`),
-    upload: (kbId: string, file: File, strategy: string) => {
+    upload: (kbId: string, file: File) => {
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('chunking_strategy', strategy);
         return api.post(`/knowledge-bases/${kbId}/documents`, formData, {
             headers: {
                 'Content-Type': 'multipart/form-data',

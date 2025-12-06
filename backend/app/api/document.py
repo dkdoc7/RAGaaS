@@ -4,6 +4,7 @@ from sqlalchemy.future import select
 from typing import List
 from app.core.database import get_db
 from app.models.document import Document as DocModel, DocumentStatus
+from app.models.knowledge_base import KnowledgeBase as KBModel
 from app.schemas import Document
 from app.services.ingestion import ingestion_service
 
@@ -14,9 +15,14 @@ async def upload_document(
     kb_id: str,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    chunking_strategy: str = Form("size"),
     db: AsyncSession = Depends(get_db)
 ):
+    # Fetch Knowledge Base to get chunking config
+    result = await db.execute(select(KBModel).filter(KBModel.id == kb_id))
+    kb = result.scalars().first()
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge Base not found")
+
     # Create Document record
     doc = DocModel(
         kb_id=kb_id,
@@ -38,7 +44,8 @@ async def upload_document(
         doc.id,
         doc.filename,
         content,
-        chunking_strategy
+        kb.chunking_strategy,
+        kb.chunking_config
     )
     
     return doc

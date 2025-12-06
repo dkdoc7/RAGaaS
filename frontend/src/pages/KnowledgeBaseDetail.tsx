@@ -3,13 +3,16 @@ import { useParams, Link } from 'react-router-dom';
 import { kbApi, docApi, retrievalApi } from '../services/api';
 import { ArrowLeft, Upload, FileText, Play, Trash2, Loader2 } from 'lucide-react';
 import clsx from 'clsx';
+import ConfirmDialog from '../components/ConfirmDialog';
+
+import UploadDocumentModal from '../components/UploadDocumentModal';
 
 export default function KnowledgeBaseDetail() {
     const { id } = useParams<{ id: string }>();
     const [kb, setKb] = useState<any>(null);
     const [activeTab, setActiveTab] = useState('documents');
     const [documents, setDocuments] = useState<any[]>([]);
-    const [isUploading, setIsUploading] = useState(false);
+    const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
     // Retrieval State
     const [query, setQuery] = useState('');
@@ -22,10 +25,41 @@ export default function KnowledgeBaseDetail() {
     const [chunks, setChunks] = useState<any[]>([]);
     const [isLoadingChunks, setIsLoadingChunks] = useState(false);
 
+    // Delete confirmation modal state
+    const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
+
     useEffect(() => {
         if (id) {
             loadKb();
             loadDocs();
+
+            // WebSocket connection
+            const ws = new WebSocket(`ws://localhost:8000/api/ws/${id}`);
+
+            ws.onopen = () => {
+                console.log('Connected to WebSocket');
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'document_status_update') {
+                    setDocuments((prevDocs) =>
+                        prevDocs.map((doc) =>
+                            doc.id === data.doc_id
+                                ? { ...doc, status: data.status }
+                                : doc
+                        )
+                    );
+                }
+            };
+
+            ws.onclose = () => {
+                console.log('Disconnected from WebSocket');
+            };
+
+            return () => {
+                ws.close();
+            };
         }
     }, [id]);
 
@@ -47,20 +81,7 @@ export default function KnowledgeBaseDetail() {
         }
     };
 
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files || e.target.files.length === 0) return;
-        setIsUploading(true);
-        try {
-            // Default strategy size for now, can add UI to select
-            await docApi.upload(id!, e.target.files[0], 'size');
-            loadDocs();
-        } catch (err) {
-            console.error(err);
-            alert('Upload failed');
-        } finally {
-            setIsUploading(false);
-        }
-    };
+
 
     const handleSearch = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -95,15 +116,21 @@ export default function KnowledgeBaseDetail() {
         }
     };
 
-    const handleDeleteDocument = async (docId: string, e: React.MouseEvent) => {
+    const handleDeleteDocument = (docId: string, e: React.MouseEvent) => {
         e.stopPropagation(); // Prevent triggering row click
-        if (!confirm('Are you sure you want to delete this document?')) return;
+        setDeleteDocId(docId); // Open confirmation modal
+    };
+
+    const confirmDelete = async () => {
+        if (!deleteDocId) return;
         try {
-            await docApi.delete(id!, docId);
+            await docApi.delete(id!, deleteDocId);
             loadDocs();
         } catch (err) {
             console.error(err);
             alert('Failed to delete document');
+        } finally {
+            setDeleteDocId(null); // Close modal
         }
     };
 
@@ -148,17 +175,13 @@ export default function KnowledgeBaseDetail() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                         <h3>Documents ({documents.length})</h3>
                         <div style={{ position: 'relative' }}>
-                            <input
-                                type="file"
-                                id="file-upload"
-                                style={{ display: 'none' }}
-                                onChange={handleFileUpload}
-                                disabled={isUploading}
-                            />
-                            <label htmlFor="file-upload" className="btn btn-primary" style={{ cursor: isUploading ? 'not-allowed' : 'pointer', opacity: isUploading ? 0.7 : 1 }}>
-                                {isUploading ? <Loader2 className="animate-spin" size={20} /> : <Upload size={20} />}
-                                {isUploading ? 'Uploading...' : 'Upload Document'}
-                            </label>
+                            <button
+                                className="btn btn-primary"
+                                onClick={() => setIsUploadModalOpen(true)}
+                            >
+                                <Upload size={20} />
+                                Upload Document
+                            </button>
                         </div>
                     </div>
 
@@ -178,14 +201,15 @@ export default function KnowledgeBaseDetail() {
                                         key={doc.id}
                                         style={{
                                             borderBottom: '1px solid var(--border)',
-                                            cursor: 'pointer',
                                             transition: 'background 0.2s'
                                         }}
                                         onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
                                         onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                                        onClick={() => handleViewChunks(doc)}
                                     >
-                                        <td style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                        <td
+                                            style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}
+                                            onClick={() => handleViewChunks(doc)}
+                                        >
                                             <FileText size={18} color="var(--text-secondary)" />
                                             {doc.filename}
                                         </td>
@@ -374,6 +398,24 @@ export default function KnowledgeBaseDetail() {
                     </div>
                 </div>
             )}
+
+            {/* Delete Confirmation Modal */}
+            <ConfirmDialog
+                isOpen={!!deleteDocId}
+                title="Delete Document"
+                message="Are you sure you want to delete this document? This action cannot be undone."
+                onConfirm={confirmDelete}
+                onCancel={() => setDeleteDocId(null)}
+                confirmText="Delete"
+                isDestructive={true}
+            />
+
+            <UploadDocumentModal
+                isOpen={isUploadModalOpen}
+                onClose={() => setIsUploadModalOpen(false)}
+                kbId={id!}
+                onUploadComplete={loadDocs}
+            />
         </div>
     );
 }

@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { kbApi } from '../services/api';
 import { Plus, Database, Trash2, ArrowRight } from 'lucide-react';
+import ConfirmDialog from '../components/ConfirmDialog';
+import CreateKnowledgeBaseModal from '../components/CreateKnowledgeBaseModal';
 
 interface KnowledgeBase {
     id: string;
@@ -13,8 +15,8 @@ interface KnowledgeBase {
 export default function Dashboard() {
     const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [newKbName, setNewKbName] = useState('');
-    const [newKbDesc, setNewKbDesc] = useState('');
+
+    const [deleteKbId, setDeleteKbId] = useState<string | null>(null);
 
     useEffect(() => {
         loadKbs();
@@ -29,27 +31,22 @@ export default function Dashboard() {
         }
     };
 
-    const handleCreate = async (e: React.FormEvent) => {
-        e.preventDefault();
-        try {
-            await kbApi.create({ name: newKbName, description: newKbDesc });
-            setIsModalOpen(false);
-            setNewKbName('');
-            setNewKbDesc('');
-            loadKbs();
-        } catch (err) {
-            console.error(err);
-        }
+
+
+    const handleDelete = (id: string, e: React.MouseEvent) => {
+        e.preventDefault(); // Prevent navigation
+        setDeleteKbId(id);
     };
 
-    const handleDelete = async (id: string, e: React.MouseEvent) => {
-        e.preventDefault(); // Prevent navigation
-        if (!confirm('Are you sure you want to delete this Knowledge Base?')) return;
+    const confirmDeleteKb = async () => {
+        if (!deleteKbId) return;
         try {
-            await kbApi.delete(id);
+            await kbApi.delete(deleteKbId);
             loadKbs();
         } catch (err) {
             console.error(err);
+        } finally {
+            setDeleteKbId(null);
         }
     };
 
@@ -94,42 +91,21 @@ export default function Dashboard() {
                 ))}
             </div>
 
-            {isModalOpen && (
-                <div style={{
-                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                    backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50
-                }}>
-                    <div className="card" style={{ width: '100%', maxWidth: '500px' }}>
-                        <h2 style={{ marginTop: 0 }}>Create Knowledge Base</h2>
-                        <form onSubmit={handleCreate}>
-                            <div style={{ marginBottom: '1rem' }}>
-                                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Name</label>
-                                <input
-                                    className="input"
-                                    value={newKbName}
-                                    onChange={(e) => setNewKbName(e.target.value)}
-                                    required
-                                    placeholder="e.g. Product Manuals"
-                                />
-                            </div>
-                            <div style={{ marginBottom: '1.5rem' }}>
-                                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Description</label>
-                                <textarea
-                                    className="input"
-                                    value={newKbDesc}
-                                    onChange={(e) => setNewKbDesc(e.target.value)}
-                                    rows={3}
-                                    placeholder="Optional description..."
-                                />
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
-                                <button type="button" className="btn" onClick={() => setIsModalOpen(false)}>Cancel</button>
-                                <button type="submit" className="btn btn-primary">Create</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
+            <CreateKnowledgeBaseModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                onCreateComplete={loadKbs}
+            />
+
+            <ConfirmDialog
+                isOpen={!!deleteKbId}
+                title="Delete Knowledge Base"
+                message="Are you sure you want to delete this Knowledge Base? This action cannot be undone."
+                onConfirm={confirmDeleteKb}
+                onCancel={() => setDeleteKbId(null)}
+                confirmText="Delete"
+                isDestructive={true}
+            />
         </div>
     );
 }

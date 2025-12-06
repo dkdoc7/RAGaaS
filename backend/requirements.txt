@@ -11,3 +11,5 @@ pypdf
 tiktoken
 sentence-transformers
 greenlet
+langchain-experimental
+langchain-openai

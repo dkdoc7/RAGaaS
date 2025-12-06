@@ -6,6 +6,8 @@ from enum import Enum
 class KnowledgeBaseBase(BaseModel):
     name: str
     description: Optional[str] = None
+    chunking_strategy: str = "size"
+    chunking_config: dict = {}
 
 class KnowledgeBaseCreate(KnowledgeBaseBase):
     pass

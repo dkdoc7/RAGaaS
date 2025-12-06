@@ -10,5 +10,7 @@ class KnowledgeBase(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String, index=True)
     description = Column(String, nullable=True)
+    chunking_strategy = Column(String, default="size")
+    chunking_config = Column(JSON, default={})
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
