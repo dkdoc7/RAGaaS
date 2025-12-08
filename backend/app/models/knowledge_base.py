@@ -12,5 +12,6 @@ class KnowledgeBase(Base):
     description = Column(String, nullable=True)
     chunking_strategy = Column(String, default="size")
     chunking_config = Column(JSON, default={})
+    metric_type = Column(String, default="COSINE")  # COSINE or IP
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

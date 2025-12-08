@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { kbApi, docApi, retrievalApi } from '../services/api';
-import { ArrowLeft, Upload, FileText, Play, Trash2, Loader2 } from 'lucide-react';
+import { ArrowLeft, Upload, FileText, Play, Trash2, Loader2, ChevronRight, ChevronDown, ArrowUpDown } from 'lucide-react';
 import clsx from 'clsx';
 import ConfirmDialog from '../components/ConfirmDialog';
 
@@ -19,11 +19,14 @@ export default function KnowledgeBaseDetail() {
     const [results, setResults] = useState<any[]>([]);
     const [searchStrategy, setSearchStrategy] = useState('ann');
     const [isSearching, setIsSearching] = useState(false);
+    const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
+    const [scoreThreshold, setScoreThreshold] = useState(0.5);
 
     // Chunk Viewer State
     const [selectedDoc, setSelectedDoc] = useState<any>(null);
     const [chunks, setChunks] = useState<any[]>([]);
     const [isLoadingChunks, setIsLoadingChunks] = useState(false);
+    const [expandedParents, setExpandedParents] = useState<Record<string, boolean>>({});
 
     // Delete confirmation modal state
     const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
@@ -91,7 +94,7 @@ export default function KnowledgeBaseDetail() {
             const res = await retrievalApi.retrieve(id!, {
                 query,
                 top_k: 5,
-                score_threshold: 0.0,
+                score_threshold: scoreThreshold,
                 strategy: searchStrategy
             });
             setResults(res.data);
@@ -142,9 +145,105 @@ export default function KnowledgeBaseDetail() {
                 <ArrowLeft size={16} style={{ marginRight: '0.5rem' }} /> Back to Dashboard
             </Link>
 
+
             <div style={{ marginBottom: '2rem' }}>
                 <h1 style={{ margin: '0 0 0.5rem 0' }}>{kb.name}</h1>
-                <p style={{ color: 'var(--text-secondary)', margin: 0 }}>{kb.description}</p>
+                <p style={{ color: 'var(--text-secondary)', margin: '0 0 1rem 0' }}>{kb.description}</p>
+
+                <div className="card" style={{ padding: '1rem', background: '#f8fafc' }}>
+                    <h3 style={{ margin: '0 0 0.75rem 0', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Configuration</h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                        <div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Chunking Strategy</div>
+                            <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                                {kb.chunking_strategy === 'size' && 'Fixed Size'}
+                                {kb.chunking_strategy === 'parent_child' && 'Parent-Child'}
+                                {kb.chunking_strategy === 'context_aware' && 'Context Aware'}
+                            </div>
+                        </div>
+                        <div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Similarity Metric</div>
+                            <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                                {kb.metric_type === 'COSINE' ? 'Cosine (0-1)' : 'Inner Product'}
+                            </div>
+                        </div>
+                        {kb.chunking_strategy === 'size' && (
+                            <>
+                                <div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Chunk Size</div>
+                                    <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>{kb.chunking_config.chunk_size || 1000}</div>
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Overlap</div>
+                                    <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>{kb.chunking_config.overlap || 200}</div>
+                                </div>
+                            </>
+                        )}
+                        {kb.chunking_strategy === 'parent_child' && (
+                            <>
+                                <div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Parent Size</div>
+                                    <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>{kb.chunking_config.parent_size || 2000}</div>
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Child Size</div>
+                                    <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>{kb.chunking_config.child_size || 500}</div>
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Parent Overlap</div>
+                                    <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>{kb.chunking_config.parent_overlap ?? 0}</div>
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Child Overlap</div>
+                                    <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>{kb.chunking_config.child_overlap || 100}</div>
+                                </div>
+                            </>
+                        )}
+                        {kb.chunking_strategy === 'context_aware' && (
+                            <>
+                                <div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Mode</div>
+                                    <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                                        {kb.chunking_config.semantic_mode ? 'Semantic Split (LLM)' : 'Split by Headers'}
+                                    </div>
+                                </div>
+                                {!kb.chunking_config.semantic_mode ? (
+                                    <>
+                                        <div>
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Headers</div>
+                                            <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                                                {[
+                                                    kb.chunking_config.h1 && 'H1',
+                                                    kb.chunking_config.h2 && 'H2',
+                                                    kb.chunking_config.h3 && 'H3'
+                                                ].filter(Boolean).join(', ') || 'None'}
+                                            </div>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div>
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Buffer Size</div>
+                                            <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>{kb.chunking_config.buffer_size || 1}</div>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Breakpoint Type</div>
+                                            <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                                                {kb.chunking_config.breakpoint_type === 'percentile' ? 'Percentile' :
+                                                    kb.chunking_config.breakpoint_type === 'standard_deviation' ? 'Std Deviation' :
+                                                        kb.chunking_config.breakpoint_type === 'interquartile' ? 'Interquartile' : 'Gradient'}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Breakpoint Amount</div>
+                                            <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>{kb.chunking_config.breakpoint_amount || 95}</div>
+                                        </div>
+                                    </>
+                                )}
+                            </>
+                        )}
+                    </div>
+                </div>
             </div>
 
             <div style={{ borderBottom: '1px solid var(--border)', marginBottom: '2rem' }}>
@@ -270,16 +369,32 @@ export default function KnowledgeBaseDetail() {
                             </form>
                         </div>
 
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                            <h3 style={{ margin: 0 }}>Results ({results.length})</h3>
+                            {results.length > 0 && (
+                                <button
+                                    className="btn"
+                                    onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem' }}
+                                >
+                                    <ArrowUpDown size={16} />
+                                    Sort by Score ({sortOrder === 'desc' ? 'High to Low' : 'Low to High'})
+                                </button>
+                            )}
+                        </div>
+
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                            {results.map((result, idx) => (
-                                <div key={idx} className="card">
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                                        <span className="badge badge-success">Score: {result.score.toFixed(4)}</span>
-                                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Chunk ID: {result.chunk_id}</span>
+                            {[...results]
+                                .sort((a, b) => sortOrder === 'desc' ? b.score - a.score : a.score - b.score)
+                                .map((result, idx) => (
+                                    <div key={idx} className="card">
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                                            <span className="badge badge-success">Score: {result.score.toFixed(4)}</span>
+                                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Chunk ID: {result.chunk_id}</span>
+                                        </div>
+                                        <p style={{ margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{result.content}</p>
                                     </div>
-                                    <p style={{ margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{result.content}</p>
-                                </div>
-                            ))}
+                                ))}
                             {results.length === 0 && !isSearching && (
                                 <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem' }}>
                                     Run a query to see results.
@@ -307,8 +422,19 @@ export default function KnowledgeBaseDetail() {
                             <input type="number" className="input" defaultValue={5} />
                         </div>
                         <div style={{ marginBottom: '1rem' }}>
-                            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Score Threshold</label>
-                            <input type="range" style={{ width: '100%' }} min="0" max="1" step="0.1" defaultValue="0.5" />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500 }}>Score Threshold</label>
+                                <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{scoreThreshold.toFixed(2)}</span>
+                            </div>
+                            <input
+                                type="range"
+                                style={{ width: '100%' }}
+                                min="0"
+                                max={kb?.metric_type === 'COSINE' ? '1' : '10'}
+                                step={kb?.metric_type === 'COSINE' ? '0.05' : '0.5'}
+                                value={scoreThreshold}
+                                onChange={(e) => setScoreThreshold(parseFloat(e.target.value))}
+                            />
                         </div>
                     </div>
                 </div>
@@ -357,37 +483,132 @@ export default function KnowledgeBaseDetail() {
                             </div>
                         ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                                {chunks.map((chunk, idx) => (
-                                    <div key={idx} style={{
-                                        padding: '1rem',
-                                        border: '1px solid var(--border)',
-                                        borderRadius: '8px',
-                                        background: '#fafafa'
-                                    }}>
-                                        <div style={{
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            marginBottom: '0.75rem',
-                                            paddingBottom: '0.75rem',
-                                            borderBottom: '1px solid var(--border)'
-                                        }}>
-                                            <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>
-                                                Chunk {idx + 1}
-                                            </span>
-                                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                                ID: {chunk.chunk_id}
-                                            </span>
-                                        </div>
-                                        <p style={{
-                                            margin: 0,
-                                            lineHeight: 1.6,
-                                            whiteSpace: 'pre-wrap',
-                                            fontSize: '0.875rem'
-                                        }}>
-                                            {chunk.content}
-                                        </p>
-                                    </div>
-                                ))}
+                                {(() => {
+                                    // Group by parent_id if available
+                                    const hasParents = chunks.some(c => c.metadata && c.metadata.parent_id !== undefined);
+
+                                    if (hasParents) {
+                                        const grouped: Record<string, { content: string, children: any[] }> = {};
+
+                                        chunks.forEach(chunk => {
+                                            const parentId = chunk.metadata?.parent_id;
+                                            if (parentId !== undefined) {
+                                                if (!grouped[parentId]) {
+                                                    grouped[parentId] = {
+                                                        content: chunk.metadata.parent_content || `Parent Chunk ${parentId}`,
+                                                        children: []
+                                                    };
+                                                }
+                                                grouped[parentId].children.push(chunk);
+                                            } else {
+                                                // Handle orphans if any (shouldn't happen with parent-child strategy)
+                                                if (!grouped['orphans']) {
+                                                    grouped['orphans'] = { content: 'Other Chunks', children: [] };
+                                                }
+                                                grouped['orphans'].children.push(chunk);
+                                            }
+                                        });
+
+                                        return Object.entries(grouped).map(([parentId, parent]) => (
+                                            <div key={parentId} style={{
+                                                border: '1px solid var(--border)',
+                                                borderRadius: '8px',
+                                                background: '#fff',
+                                                overflow: 'hidden'
+                                            }}>
+                                                <div
+                                                    onClick={() => setExpandedParents(prev => ({ ...prev, [parentId]: !prev[parentId] }))}
+                                                    style={{
+                                                        padding: '1rem',
+                                                        background: '#f8fafc',
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'start',
+                                                        gap: '0.75rem',
+                                                        borderBottom: expandedParents[parentId] ? '1px solid var(--border)' : 'none'
+                                                    }}
+                                                >
+                                                    {expandedParents[parentId] ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                                                    <div style={{ flex: 1 }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                                                            <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                                                                {parentId === 'orphans' ? 'Other Chunks' : `Parent Chunk ${parseInt(parentId) + 1}`}
+                                                            </span>
+                                                            <span className="badge">
+                                                                {parent.children.length} children
+                                                            </span>
+                                                        </div>
+                                                        <p style={{
+                                                            margin: 0,
+                                                            fontSize: '0.875rem',
+                                                            color: 'var(--text-secondary)',
+                                                            display: '-webkit-box',
+                                                            WebkitLineClamp: expandedParents[parentId] ? undefined : 2,
+                                                            WebkitBoxOrient: 'vertical',
+                                                            overflow: 'hidden'
+                                                        }}>
+                                                            {parent.content}
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                {expandedParents[parentId] && (
+                                                    <div style={{ padding: '1rem', background: '#fafafa', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                                        {parent.children.map((chunk, idx) => (
+                                                            <div key={idx} style={{
+                                                                padding: '0.75rem',
+                                                                border: '1px solid var(--border)',
+                                                                borderRadius: '6px',
+                                                                background: '#fff'
+                                                            }}>
+                                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
+                                                                    Child Chunk {idx + 1} (ID: {chunk.chunk_id})
+                                                                </div>
+                                                                <p style={{ margin: 0, fontSize: '0.875rem', lineHeight: 1.5 }}>
+                                                                    {chunk.content}
+                                                                </p>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ));
+                                    } else {
+                                        // Flat list fallback
+                                        return chunks.map((chunk, idx) => (
+                                            <div key={idx} style={{
+                                                padding: '1rem',
+                                                border: '1px solid var(--border)',
+                                                borderRadius: '8px',
+                                                background: '#fafafa'
+                                            }}>
+                                                <div style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    marginBottom: '0.75rem',
+                                                    paddingBottom: '0.75rem',
+                                                    borderBottom: '1px solid var(--border)'
+                                                }}>
+                                                    <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                                                        Chunk {idx + 1}
+                                                    </span>
+                                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                                        ID: {chunk.chunk_id}
+                                                    </span>
+                                                </div>
+                                                <p style={{
+                                                    margin: 0,
+                                                    lineHeight: 1.6,
+                                                    whiteSpace: 'pre-wrap',
+                                                    fontSize: '0.875rem'
+                                                }}>
+                                                    {chunk.content}
+                                                </p>
+                                            </div>
+                                        ));
+                                    }
+                                })()}
+
                                 {chunks.length === 0 && (
                                     <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
                                         No chunks found for this document.

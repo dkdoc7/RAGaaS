@@ -17,7 +17,7 @@ class RetrievalService:
             self.reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
         return self.reranker
 
-    async def search_ann(self, kb_id: str, query: str, top_k: int = 5, score_threshold: float = 0.0) -> List[Dict]:
+    async def search_ann(self, kb_id: str, query: str, top_k: int = 5, score_threshold: float = 0.0, metric_type: str = "L2") -> List[Dict]:
         collection = create_collection(kb_id)
         collection.load()
 
@@ -26,7 +26,7 @@ class RetrievalService:
         
         # 2. Search
         search_params = {
-            "metric_type": "L2",
+            "metric_type": metric_type,
             "params": {"nprobe": 10},
         }
         
@@ -58,9 +58,9 @@ class RetrievalService:
         
         return retrieved
 
-    async def search_2stage(self, kb_id: str, query: str, top_k: int = 5) -> List[Dict]:
+    async def search_2stage(self, kb_id: str, query: str, top_k: int = 5, metric_type: str = "L2") -> List[Dict]:
         # 1. Candidate Generation (ANN) - Fetch more candidates (e.g., top_k * 5)
-        candidates = await self.search_ann(kb_id, query, top_k=top_k * 5)
+        candidates = await self.search_ann(kb_id, query, top_k=top_k * 5, metric_type=metric_type)
         
         if not candidates:
             return []

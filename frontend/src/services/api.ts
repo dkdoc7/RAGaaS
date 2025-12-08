@@ -9,7 +9,7 @@ const api = axios.create({
 
 export const kbApi = {
     list: () => api.get('/knowledge-bases/'),
-    create: (data: { name: string; description: string; chunking_strategy: string; chunking_config: any }) => api.post('/knowledge-bases/', data),
+    create: (data: { name: string; description: string; chunking_strategy: string; chunking_config: any; metric_type?: string }) => api.post('/knowledge-bases/', data),
     get: (id: string) => api.get(`/knowledge-bases/${id}`),
     delete: (id: string) => api.delete(`/knowledge-bases/${id}`),
 };

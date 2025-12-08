@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List
 
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, get_db
 
 class IngestionService:
     async def process_document(
@@ -86,23 +86,34 @@ class IngestionService:
                 chunks = [{"content": t, "metadata": {}} for t in texts]
 
             # 3. Embedding
-            texts_to_embed = [c["content"] for c in chunks]
+            texts_to_embed = [c["content"] for c in chunks if c["content"].strip()]
+            
+            if not texts_to_embed:
+                print(f"Warning: No text content found in document {filename}")
+                # We can either raise error or just mark as completed with 0 chunks
+                # For now, let's raise error to inform user
+                raise ValueError("No text content could be extracted from the document.")
+
             # Batch embedding if needed, but for now simple
             vectors = await embedding_service.get_embeddings(texts_to_embed)
 
             # 4. Insert into Milvus
             collection = create_collection(kb_id)
             
+            # Extract metadata
+            metadatas = [c["metadata"] for c in chunks if c["content"].strip()]
+
             data = [
-                [doc_id] * len(chunks), # doc_id
-                [f"{doc_id}_{i}" for i in range(len(chunks))], # chunk_id
+                [doc_id] * len(texts_to_embed), # doc_id
+                [f"{doc_id}_{i}" for i in range(len(texts_to_embed))], # chunk_id
                 texts_to_embed, # content
+                metadatas, # metadata
                 vectors # vector
             ]
             
             collection.insert(data)
             collection.flush() # Ensure data is visible
-
+            
             # 5. Update Status to COMPLETED
             async with SessionLocal() as db:
                 result = await db.execute(select(Document).filter(Document.id == doc_id))
@@ -122,20 +133,23 @@ class IngestionService:
         except Exception as e:
             # Update status to ERROR on failure
             print(f"Error processing document {doc_id}: {str(e)}")
-            async with SessionLocal() as db:
-                result = await db.execute(select(Document).filter(Document.id == doc_id))
-                doc = result.scalars().first()
-                if doc:
-                    doc.status = DocumentStatus.ERROR.value
-                    await db.commit()
-                    
-                    # Broadcast WebSocket notification for error
-                    from app.core.websocket_manager import manager
-                    await manager.broadcast(kb_id, {
-                        "type": "document_status_update",
-                        "doc_id": doc_id,
-                        "status": DocumentStatus.ERROR.value,
-                        "filename": filename
-                    })
+            try:
+                async with SessionLocal() as db:
+                    result = await db.execute(select(Document).filter(Document.id == doc_id))
+                    doc = result.scalars().first()
+                    if doc:
+                        doc.status = DocumentStatus.ERROR.value
+                        await db.commit()
+                        
+                        # Broadcast WebSocket notification for error
+                        from app.core.websocket_manager import manager
+                        await manager.broadcast(kb_id, {
+                            "type": "document_status_update",
+                            "doc_id": doc_id,
+                            "status": DocumentStatus.ERROR.value,
+                            "filename": filename
+                        })
+            except Exception as db_err:
+                print(f"Error updating document status to ERROR: {str(db_err)}")
 
 ingestion_service = IngestionService()

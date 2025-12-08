@@ -75,6 +75,7 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
         breakpoint_type: 'percentile',
         breakpoint_amount: 95
     });
+    const [metricType, setMetricType] = useState('COSINE');
     const [isCreating, setIsCreating] = useState(false);
 
     if (!isOpen) return null;
@@ -87,7 +88,8 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
                 name,
                 description,
                 chunking_strategy: strategy,
-                chunking_config: config
+                chunking_config: config,
+                metric_type: metricType
             });
             onCreateComplete();
             onClose();
@@ -159,6 +161,55 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
                             rows={3}
                             placeholder="Optional description..."
                         />
+                    </div>
+
+                    <div style={{ marginBottom: '1.5rem' }}>
+                        <LabelWithTooltip
+                            label="Similarity Metric"
+                            tooltip="Cosine: scores 0-1 (normalized). Inner Product: unbounded scores."
+                        />
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <div
+                                onClick={() => setMetricType('COSINE')}
+                                style={{
+                                    border: metricType === 'COSINE' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                                    borderRadius: '8px',
+                                    padding: '0.75rem',
+                                    cursor: 'pointer',
+                                    background: metricType === 'COSINE' ? '#eff6ff' : 'white',
+                                    transition: 'all 0.2s',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center'
+                                }}
+                            >
+                                <div>
+                                    <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>Cosine</div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>0-1 range</div>
+                                </div>
+                                {metricType === 'COSINE' && <Check size={18} color="var(--primary)" />}
+                            </div>
+                            <div
+                                onClick={() => setMetricType('IP')}
+                                style={{
+                                    border: metricType === 'IP' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                                    borderRadius: '8px',
+                                    padding: '0.75rem',
+                                    cursor: 'pointer',
+                                    background: metricType === 'IP' ? '#eff6ff' : 'white',
+                                    transition: 'all 0.2s',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center'
+                                }}
+                            >
+                                <div>
+                                    <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>Inner Product</div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Unbounded</div>
+                                </div>
+                                {metricType === 'IP' && <Check size={18} color="var(--primary)" />}
+                            </div>
+                        </div>
                     </div>
 
                     <div style={{ marginBottom: '2rem' }}>

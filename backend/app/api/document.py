@@ -86,11 +86,20 @@ async def get_document_chunks(kb_id: str, doc_id: str, db: AsyncSession = Depend
     
     # Query by doc_id
     expr = f'doc_id == "{doc_id}"'
-    results = collection.query(
-        expr=expr,
-        output_fields=["chunk_id", "content", "doc_id"],
-        limit=1000  # Adjust as needed
-    )
+    try:
+        results = collection.query(
+            expr=expr,
+            output_fields=["chunk_id", "content", "doc_id", "metadata"],
+            limit=1000  # Adjust as needed
+        )
+    except Exception as e:
+        # Fallback for legacy collections without metadata field
+        print(f"Error querying with metadata: {str(e)}. Falling back to legacy query.")
+        results = collection.query(
+            expr=expr,
+            output_fields=["chunk_id", "content", "doc_id"],
+            limit=1000
+        )
     
     return {
         "document": {

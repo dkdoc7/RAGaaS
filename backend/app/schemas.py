@@ -8,6 +8,7 @@ class KnowledgeBaseBase(BaseModel):
     description: Optional[str] = None
     chunking_strategy: str = "size"
     chunking_config: dict = {}
+    metric_type: str = "COSINE"  # COSINE or IP
 
 class KnowledgeBaseCreate(KnowledgeBaseBase):
     pass

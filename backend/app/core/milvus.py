@@ -8,17 +8,25 @@ def connect_milvus():
         port=settings.MILVUS_PORT
     )
 
-def create_collection(kb_id: str):
+def create_collection(kb_id: str, metric_type: str = "COSINE"):
     collection_name = f"kb_{kb_id.replace('-', '_')}"
     
     if utility.has_collection(collection_name):
-        return Collection(collection_name)
+        col = Collection(collection_name)
+        # Check if metadata field exists
+        has_metadata = any(field.name == "metadata" for field in col.schema.fields)
+        if not has_metadata:
+            print(f"Collection {collection_name} has outdated schema (missing metadata). Dropping and recreating.")
+            utility.drop_collection(collection_name)
+        else:
+            return col
     
     fields = [
         FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
         FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=64),
         FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, max_length=64),
         FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535),
+        FieldSchema(name="metadata", dtype=DataType.JSON),
         FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, dim=1536) # Assuming OpenAI embedding dim
     ]
     
@@ -26,7 +34,7 @@ def create_collection(kb_id: str):
     collection = Collection(collection_name, schema)
     
     index_params = {
-        "metric_type": "L2",
+        "metric_type": metric_type,  # Use provided metric_type (COSINE or IP)
         "index_type": "IVF_FLAT",
         "params": {"nlist": 1024}
     }
