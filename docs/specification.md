@@ -8,15 +8,17 @@
 -   **백엔드**: FastAPI (Python)
 -   **벡터 데이터베이스**: Milvus
 -   **메타데이터 데이터베이스**: SQLite (간편함을 위해 선택, 추후 PostgreSQL로 확장 가능)
--   **임베딩 모델**: OpenAI / HuggingFace (설정 가능)
+-   **임베딩 모델**: OpenAI `text-embedding-3-small`
+-   **리랭킹 모델**: Cross-Encoder `cross-encoder/ms-marco-MiniLM-L-6-v2`
+-   **키워드 검색**: BM25 (rank-bm25)
 
 ## 3. 핵심 기능
 
 ### 3.1 지식 베이스 관리 (Knowledge Base Management)
 -   **지식 베이스 생성**: 이름과 설명을 입력하여 새로운 지식 베이스 생성.
 -   **지식 베이스 목록 조회**: 문서 수, 크기, 마지막 업데이트 시간 등의 메타데이터와 함께 목록 조회.
--   **지식 베이스 삭제**: 지식 베이스 및 관련 데이터 삭제.
--   **설정**: 기본 검색 설정 구성 (Top K, Score Threshold).
+-   **지식 베이스 삭제**: 지식 베이스 삭제 시 관련된 모든 문서와 Milvus 컬렉션을 자동으로 삭제 (Cascading Delete).
+-   **설정**: 기본 검색 설정 구성 (Top K, Score Threshold), 청킹 전략 및 유사도 측정 방식(COSINE/L2/IP) 선택.
 
 ### 3.2 문서 관리 (Document Management)
 -   **문서 업로드**: TXT, PDF, Markdown 파일 지원.
@@ -32,11 +34,20 @@
 -   **상태 추적**: 인덱싱 상태 실시간 확인 (대기 중, 처리 중, 완료, 실패).
 
 ### 3.3 검색 전략 (Retrieval Strategy)
--   **키워드 검색 (Keyword Search)**: 텍스트 매칭 기반 검색 지원.
--   **유사도 검색 (Similarity Search - ANN)**: 벡터 유사도 기반 검색 지원.
+시스템은 4가지 검색 전략을 지원하며, 모든 전략은 **코사인 유사도 (0~1 범위)**로 통일된 점수를 제공합니다.
+
+-   **ANN (Approximate Nearest Neighbor)**: 벡터 유사도 기반 고속 검색. KB 설정(COSINE/L2/IP)에 관계없이 최종 점수는 코사인 유사도로 재계산됩니다.
+-   **키워드 검색 (Keyword Search)**: Milvus LIKE 연산자를 이용한 텍스트 매칭. 매칭된 결과에 대해 코사인 유사도를 계산하여 점수를 부여합니다.
 -   **2단계 검색 (Two-Stage Retrieval)**:
-    -   **1단계 (Candidate Generation)**: 낮은 유사도 임계값으로 빠르게 다수의 후보군 검색 (ANN).
-    -   **2단계 (Fine-tuning)**: 1단계 후보군을 대상으로 높은 정밀도의 검색(Brute Force 또는 Re-ranking)을 수행하여 최종 결과 도출.
+    -   **1단계 (Candidate Generation)**: ANN으로 상위 25개 후보 검색.
+    -   **2단계 (Reranking)**: Cross-Encoder 모델(`cross-encoder/ms-marco-MiniLM-L-6-v2`)로 정밀 평가 후 순위 재정렬.
+    -   **최종 점수**: 재정렬된 순서를 유지하되, 점수는 코사인 유사도로 표시.
+-   **하이브리드 검색 (Hybrid Search - ANN + BM25)**:
+    -   BM25 통계 기반 키워드 검색과 ANN 벡터 검색 결과를 결합.
+    -   양쪽 결과의 합집합에 대해 코사인 유사도를 계산하여 최종 순위 결정.
+    -   키워드 정확도와 의미적 유사성을 모두 고려한 최적의 검색 정확도 제공.
+
+**통일된 점수 체계**: 모든 검색 전략은 Score Threshold (0~1)를 동일하게 적용할 수 있으며, 검색 결과 비교가 용이합니다.
 
 ### 3.4 검색 테스트 (Retrieval Testing)
 -   **플레이그라운드**: 특정 지식 베이스에 대해 검색 쿼리를 테스트할 수 있는 UI.
@@ -61,7 +72,8 @@
 
 ### 검색 (Retrieval)
 -   `POST /api/knowledge-bases/{kb_id}/retrieve`: 관련 청크 검색.
-    -   Body: `{ "query": "...", "top_k": 5, "score_threshold": 0.5 }`
+    -   Body: `{ "query": "...", "top_k": 5, "score_threshold": 0.5, "strategy": "ann" | "keyword" | "2-stage" | "hybrid" }`
+    -   Response: `[{ "chunk_id": "...", "content": "...", "score": 0.87, "metadata": {...} }]`
 
 ## 5. 데이터베이스 스키마
 

@@ -8,7 +8,9 @@ Milvus 기반의 다수의 RAG (Retrieval-Augmented Generation) 지식 베이스
 - **Frontend**: React + TypeScript (Vite)
 - **Vector DB**: Milvus
 - **Metadata DB**: SQLite
-- **Embeddings**: OpenAI
+- **Embeddings**: OpenAI `text-embedding-3-small`
+- **Reranking**: Cross-Encoder `cross-encoder/ms-marco-MiniLM-L-6-v2`
+- **Keyword Search**: BM25 (rank-bm25)
 
 ## 주요 기능
 
@@ -23,10 +25,17 @@ Milvus 기반의 다수의 RAG (Retrieval-Augmented Generation) 지식 베이스
   - **Parent-Child**: 계층적 청크 구조
   - **Context Aware**: 의미 단위 분할
 
-### 검색 전략
-- 키워드 검색
-- 벡터 유사도 검색 (ANN)
-- 2단계 검색 (ANN + Re-ranking)
+### 검색 전략 (4가지)
+모든 검색 방식은 **코사인 유사도 (0~1)** 로 통일된 점수를 제공합니다.
+
+- **ANN (Vector Search)**: 고속 벡터 유사도 검색
+- **Keyword Search**: BM25 기반 키워드 매칭 검색
+- **2-Stage Retrieval**: ANN 후보 검색 + Cross-Encoder 정밀 재평가
+- **Hybrid (ANN + BM25)**: 벡터 검색과 키워드 검색을 결합한 최고 정확도 검색
+
+### 데이터 관리
+- **Cascading Delete**: 지식 베이스 삭제 시 관련 문서 및 벡터 자동 삭제
+- **실시간 상태 추적**: WebSocket을 통한 문서 처리 상태 업데이트
 
 ### 청크 뷰어
 - 문서 클릭 시 청크 목록 조회
