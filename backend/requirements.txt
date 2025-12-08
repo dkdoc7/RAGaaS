@@ -13,3 +13,4 @@ sentence-transformers
 greenlet
 langchain-experimental
 langchain-openai
+rank-bm25

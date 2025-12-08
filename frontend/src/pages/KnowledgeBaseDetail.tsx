@@ -415,6 +415,7 @@ export default function KnowledgeBaseDetail() {
                                 <option value="ann">Vector Search (ANN)</option>
                                 <option value="keyword">Keyword Search</option>
                                 <option value="2-stage">2-Stage Retrieval</option>
+                                <option value="hybrid">Hybrid (ANN + BM25)</option>
                             </select>
                         </div>
                         <div style={{ marginBottom: '1rem' }}>
@@ -423,18 +424,39 @@ export default function KnowledgeBaseDetail() {
                         </div>
                         <div style={{ marginBottom: '1rem' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500 }}>Score Threshold</label>
-                                <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{scoreThreshold.toFixed(2)}</span>
+                                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500 }}>
+                                    Score Threshold (Cosine Similarity)
+                                </label>
+                                <input
+                                    type="number"
+                                    style={{
+                                        width: '60px',
+                                        fontSize: '0.875rem',
+                                        textAlign: 'center',
+                                        padding: '0.25rem',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '4px'
+                                    }}
+                                    value={scoreThreshold}
+                                    onChange={(e) => setScoreThreshold(parseFloat(e.target.value) || 0)}
+                                    step={0.05}
+                                    min={0}
+                                    max={1}
+                                />
                             </div>
                             <input
                                 type="range"
                                 style={{ width: '100%' }}
                                 min="0"
-                                max={kb?.metric_type === 'COSINE' ? '1' : '10'}
-                                step={kb?.metric_type === 'COSINE' ? '0.05' : '0.5'}
+                                max="1"
+                                step="0.05"
                                 value={scoreThreshold}
                                 onChange={(e) => setScoreThreshold(parseFloat(e.target.value))}
                             />
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                                All results are scored using cosine similarity (0 = unrelated, 1 = identical).
+                                {searchStrategy === '2-stage' && ' For 2-stage, Cross-Encoder scores are already 0-1 normalized.'}
+                            </div>
                         </div>
                     </div>
                 </div>
