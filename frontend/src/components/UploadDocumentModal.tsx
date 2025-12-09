@@ -1,6 +1,5 @@
 import React, { useState, useRef } from 'react';
 import { Upload, FileText, X } from 'lucide-react';
-import clsx from 'clsx';
 import { docApi } from '../services/api';
 import MessageDialog from './MessageDialog';
 
