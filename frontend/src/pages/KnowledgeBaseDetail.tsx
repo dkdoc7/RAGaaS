@@ -27,6 +27,7 @@ export default function KnowledgeBaseDetail() {
     const [chunks, setChunks] = useState<any[]>([]);
     const [isLoadingChunks, setIsLoadingChunks] = useState(false);
     const [expandedParents, setExpandedParents] = useState<Record<string, boolean>>({});
+    const [expandedChunks, setExpandedChunks] = useState<Record<number, boolean>>({});
 
     // Delete confirmation modal state
     const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
@@ -596,36 +597,62 @@ export default function KnowledgeBaseDetail() {
                                             </div>
                                         ));
                                     } else {
-                                        // Flat list fallback
+                                        // Flat list with collapsible content
                                         return chunks.map((chunk, idx) => (
                                             <div key={idx} style={{
-                                                padding: '1rem',
                                                 border: '1px solid var(--border)',
                                                 borderRadius: '8px',
-                                                background: '#fafafa'
+                                                background: '#fff',
+                                                overflow: 'hidden'
                                             }}>
-                                                <div style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                    marginBottom: '0.75rem',
-                                                    paddingBottom: '0.75rem',
-                                                    borderBottom: '1px solid var(--border)'
-                                                }}>
-                                                    <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>
-                                                        Chunk {idx + 1}
-                                                    </span>
-                                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                                        ID: {chunk.chunk_id}
-                                                    </span>
+                                                <div
+                                                    onClick={() => setExpandedChunks(prev => ({ ...prev, [idx]: !prev[idx] }))}
+                                                    style={{
+                                                        padding: '1rem',
+                                                        background: '#f8fafc',
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'start',
+                                                        gap: '0.75rem',
+                                                        borderBottom: expandedChunks[idx] ? '1px solid var(--border)' : 'none'
+                                                    }}
+                                                >
+                                                    {expandedChunks[idx] ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                                                    <div style={{ flex: 1 }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                                                            <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                                                                Chunk {idx + 1}
+                                                            </span>
+                                                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                                                ID: {chunk.chunk_id}
+                                                            </span>
+                                                        </div>
+                                                        <p style={{
+                                                            margin: 0,
+                                                            fontSize: '0.875rem',
+                                                            color: 'var(--text-secondary)',
+                                                            display: '-webkit-box',
+                                                            WebkitLineClamp: expandedChunks[idx] ? undefined : 2,
+                                                            WebkitBoxOrient: 'vertical',
+                                                            overflow: 'hidden'
+                                                        }}>
+                                                            {chunk.content}
+                                                        </p>
+                                                    </div>
                                                 </div>
-                                                <p style={{
-                                                    margin: 0,
-                                                    lineHeight: 1.6,
-                                                    whiteSpace: 'pre-wrap',
-                                                    fontSize: '0.875rem'
-                                                }}>
-                                                    {chunk.content}
-                                                </p>
+
+                                                {expandedChunks[idx] && (
+                                                    <div style={{ padding: '1rem', background: '#fafafa' }}>
+                                                        <p style={{
+                                                            margin: 0,
+                                                            lineHeight: 1.6,
+                                                            whiteSpace: 'pre-wrap',
+                                                            fontSize: '0.875rem'
+                                                        }}>
+                                                            {chunk.content}
+                                                        </p>
+                                                    </div>
+                                                )}
                                             </div>
                                         ));
                                     }

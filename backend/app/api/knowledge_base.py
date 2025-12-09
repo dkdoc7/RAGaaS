@@ -37,8 +37,54 @@ async def create_knowledge_base(kb: KnowledgeBaseCreate, db: AsyncSession = Depe
 
 @router.get("/", response_model=List[KnowledgeBase])
 async def list_knowledge_bases(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(KBModel).offset(skip).limit(limit))
-    return result.scalars().all()
+    from sqlalchemy import func
+    
+    # Get KBs with document count
+    result = await db.execute(
+        select(
+            KBModel,
+            func.count(DocModel.id).label('document_count')
+        )
+        .outerjoin(DocModel, KBModel.id == DocModel.kb_id)
+        .group_by(KBModel.id)
+        .offset(skip)
+        .limit(limit)
+    )
+    
+    kbs_with_stats = []
+    for row in result:
+        kb = row[0]
+        
+        # Get Milvus collection stats
+        collection_size = 0
+        try:
+            connect_milvus()
+            collection_name = f"kb_{kb.id.replace('-', '_')}"
+            if utility.has_collection(collection_name):
+                col = Collection(collection_name)
+                col.load()
+                stats = col.num_entities
+                # Rough estimate: each entity ~= 1.5KB (vector + metadata)
+                collection_size = int(stats * 1.5 * 1024)  # bytes
+        except Exception as e:
+            print(f"Error getting collection size for {kb.id}: {e}")
+        
+        # Convert to dict and add stats
+        kb_dict = {
+            "id": kb.id,
+            "name": kb.name,
+            "description": kb.description,
+            "created_at": kb.created_at,
+            "updated_at": kb.updated_at,
+            "chunking_strategy": kb.chunking_strategy,
+            "chunking_config": kb.chunking_config,
+            "metric_type": kb.metric_type,
+            "document_count": row[1],
+            "total_size": collection_size
+        }
+        kbs_with_stats.append(kb_dict)
+    
+    return kbs_with_stats
 
 @router.get("/{kb_id}", response_model=KnowledgeBase)
 async def get_knowledge_base(kb_id: str, db: AsyncSession = Depends(get_db)):

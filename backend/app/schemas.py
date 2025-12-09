@@ -17,6 +17,8 @@ class KnowledgeBase(KnowledgeBaseBase):
     id: str
     created_at: datetime
     updated_at: datetime
+    document_count: Optional[int] = 0
+    total_size: Optional[int] = 0
 
     class Config:
         from_attributes = True
