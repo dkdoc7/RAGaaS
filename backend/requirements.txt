@@ -14,3 +14,5 @@ greenlet
 langchain-experimental
 langchain-openai
 rank-bm25
+numpy
+spacy

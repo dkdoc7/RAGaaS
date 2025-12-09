@@ -1,0 +1,31 @@
+version: '3.5'
+
+# Use this docker-compose when Milvus is already running externally
+# Set MILVUS_HOST and MILVUS_PORT environment variables
+
+services:
+  backend:
+    container_name: ragaas-backend
+    image: ragaas-backend:latest
+    environment:
+      - USE_LOCAL_MODEL=true
+      - LOCAL_MODEL_PATH=/app/models/all-MiniLM-L6-v2
+      - MILVUS_HOST=${MILVUS_HOST:-localhost}
+      - MILVUS_PORT=${MILVUS_PORT:-19530}
+      - DATABASE_URL=sqlite:////app/data/rag_system.db
+    volumes:
+      - ./backend/data:/app/data
+      - ./models:/app/models:ro
+    ports:
+      - "8000:8000"
+    network_mode: host # Use host network to access external Milvus
+    restart: unless-stopped
+
+  frontend:
+    container_name: ragaas-frontend
+    image: ragaas-frontend:latest
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

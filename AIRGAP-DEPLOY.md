@@ -316,7 +316,78 @@ docker logs milvus-standalone
 docker-compose -f docker-compose.airgap.yml restart standalone
 ```
 
+## 기존 Milvus 사용하기 (선택사항)
+
+폐쇄망 환경에 **이미 Milvus가 설치되어 있는 경우**, Milvus를 제외하고 Backend와 Frontend만 배포할 수 있습니다.
+
+### 방법 1: 환경 변수로 외부 Milvus 연결
+
+```bash
+# 환경 변수 설정
+export MILVUS_HOST=your-milvus-server
+export MILVUS_PORT=19530
+
+# Backend와 Frontend만 배포
+docker-compose -f docker-compose.external-milvus.yml up -d
+```
+
+### 방법 2: docker-compose.airgap.yml 수정
+
+```yaml
+# docker-compose.airgap.yml에서 Milvus 관련 서비스 주석 처리
+services:
+  # etcd, minio, standalone 서비스 주석 처리
+  
+  backend:
+    container_name: ragaas-backend
+    image: ragaas-backend:latest
+    environment:
+      - USE_LOCAL_MODEL=true
+      - LOCAL_MODEL_PATH=/app/models/all-MiniLM-L6-v2
+      - MILVUS_HOST=<외부_Milvus_IP>  # 예: 192.168.1.100
+      - MILVUS_PORT=19530
+      - DATABASE_URL=sqlite:////app/data/rag_system.db
+    volumes:
+      - ./backend/data:/app/data
+      - ./models:/app/models:ro
+    ports:
+      - "8000:8000"
+    network_mode: host  # 외부 Milvus 접근을 위해 host 네트워크 사용
+    restart: unless-stopped
+```
+
+### 배포 패키지에 포함된 내용
+
+✅ **포함됨**:
+- Backend Docker 이미지
+- Frontend Docker 이미지
+- **Milvus Docker 이미지** (v2.3.3)
+- etcd Docker 이미지
+- MinIO Docker 이미지
+- 로컬 임베딩 모델
+- Python 의존성 (wheels)
+
+📦 **총 크기**: 약 1.1GB
+
+### 시나리오별 사용법
+
+| 시나리오 | 사용 파일 | Milvus |
+|---------|----------|--------|
+| 완전 독립 배포 | `docker-compose.airgap.yml` | 패키지에 포함된 Milvus 사용 |
+| 기존 Milvus 사용 | `docker-compose.external-milvus.yml` | 외부 Milvus 연결 |
+| 일부만 설치 | 수동 이미지 선택 로드 | 선택적 |
+
+### 외부 Milvus 요구사항
+
+기존 Milvus를 사용하려면 다음을 확인하세요:
+
+- **버전**: Milvus 2.3.x 이상
+- **네트워크**: Backend 컨테이너에서 Milvus 서버로 접근 가능
+- **포트**: 19530 (기본 gRPC 포트)
+- **권한**: Collection 생성/삭제 권한 필요
+
 ## 업데이트 방법
+
 
 1. 인터넷 연결 환경에서 새 버전 빌드
 2. 새 Docker 이미지를 tar로 저장

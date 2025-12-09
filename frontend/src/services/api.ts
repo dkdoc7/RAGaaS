@@ -30,8 +30,18 @@ export const docApi = {
 };
 
 export const retrievalApi = {
-    retrieve: (kbId: string, data: { query: string; top_k: number; score_threshold: number; strategy: string }) =>
-        api.post(`/knowledge-bases/${kbId}/retrieve`, data),
+    retrieve: (kbId: string, data: {
+        query: string;
+        top_k: number;
+        score_threshold: number;
+        strategy: string;
+        use_reranker?: boolean;
+        reranker_top_k?: number;
+        reranker_threshold?: number;
+        use_llm_reranker?: boolean;
+        llm_chunk_strategy?: string;
+        use_ner?: boolean;
+    }) => api.post(`/knowledge-bases/${kbId}/retrieve`, data),
 };
 
 export default api;

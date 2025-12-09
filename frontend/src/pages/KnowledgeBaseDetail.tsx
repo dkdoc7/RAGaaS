@@ -21,6 +21,18 @@ export default function KnowledgeBaseDetail() {
     const [isSearching, setIsSearching] = useState(false);
     const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
     const [scoreThreshold, setScoreThreshold] = useState(0.5);
+    const [topK, setTopK] = useState(5);
+    const [searchDuration, setSearchDuration] = useState<number | null>(null);
+
+    // Reranker State
+    const [useReranker, setUseReranker] = useState(false);
+    const [rerankerTopK, setRerankerTopK] = useState(5);
+    const [rerankerThreshold, setRerankerThreshold] = useState(0.0);
+    const [useLLMReranker, setUseLLMReranker] = useState(false);
+    const [llmChunkStrategy, setLlmChunkStrategy] = useState('full');
+
+    // NER State
+    const [useNER, setUseNER] = useState(false);
 
     // Chunk Viewer State
     const [selectedDoc, setSelectedDoc] = useState<any>(null);
@@ -36,6 +48,25 @@ export default function KnowledgeBaseDetail() {
         if (id) {
             loadKb();
             loadDocs();
+
+            // Load saved retrieval settings
+            const saved = localStorage.getItem('retrievalSettings');
+            if (saved) {
+                try {
+                    const settings = JSON.parse(saved);
+                    setSearchStrategy(settings.searchStrategy || 'ann');
+                    setTopK(settings.topK || 5);
+                    setScoreThreshold(settings.scoreThreshold || 0.5);
+                    setUseReranker(settings.useReranker || false);
+                    setRerankerTopK(settings.rerankerTopK || 5);
+                    setRerankerThreshold(settings.rerankerThreshold || 0.0);
+                    setUseLLMReranker(settings.useLLMReranker || false);
+                    setLlmChunkStrategy(settings.llmChunkStrategy || 'full');
+                    setUseNER(settings.useNER || false);
+                } catch (e) {
+                    console.error('Failed to load settings:', e);
+                }
+            }
 
             // WebSocket connection
             const ws = new WebSocket(`ws://localhost:8000/api/ws/${id}`);
@@ -91,13 +122,37 @@ export default function KnowledgeBaseDetail() {
         e.preventDefault();
         if (!query.trim()) return;
         setIsSearching(true);
+        const startTime = performance.now();
+
+        // Save settings to localStorage
+        const settings = {
+            searchStrategy,
+            topK,
+            scoreThreshold,
+            useReranker,
+            rerankerTopK,
+            rerankerThreshold,
+            useLLMReranker,
+            llmChunkStrategy,
+            useNER
+        };
+        localStorage.setItem('retrievalSettings', JSON.stringify(settings));
+
         try {
             const res = await retrievalApi.retrieve(id!, {
                 query,
-                top_k: 5,
+                top_k: topK,
                 score_threshold: scoreThreshold,
-                strategy: searchStrategy
+                strategy: searchStrategy,
+                use_reranker: useReranker && searchStrategy !== '2-stage',
+                reranker_top_k: rerankerTopK,
+                reranker_threshold: rerankerThreshold,
+                use_llm_reranker: useLLMReranker,
+                llm_chunk_strategy: llmChunkStrategy,
+                use_ner: useNER
             });
+            const endTime = performance.now();
+            setSearchDuration(endTime - startTime);
             setResults(res.data);
         } catch (err) {
             console.error(err);
@@ -371,7 +426,13 @@ export default function KnowledgeBaseDetail() {
                         </div>
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                            <h3 style={{ margin: 0 }}>Results ({results.length})</h3>
+                            <h3 style={{ margin: 0 }}>Results ({results.length})
+                                {searchDuration !== null && (
+                                    <span style={{ fontSize: '0.875rem', fontWeight: 'normal', color: 'var(--text-secondary)', marginLeft: '0.5rem' }}>
+                                        ({(searchDuration / 1000).toFixed(2)}s)
+                                    </span>
+                                )}
+                            </h3>
                             {results.length > 0 && (
                                 <button
                                     className="btn"
@@ -387,15 +448,32 @@ export default function KnowledgeBaseDetail() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                             {[...results]
                                 .sort((a, b) => sortOrder === 'desc' ? b.score - a.score : a.score - b.score)
-                                .map((result, idx) => (
-                                    <div key={idx} className="card">
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                                            <span className="badge badge-success">Score: {result.score.toFixed(4)}</span>
-                                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Chunk ID: {result.chunk_id}</span>
+                                .map((result, idx) => {
+                                    // Build score breakdown string
+                                    const breakdownParts = [];
+                                    if (result.metadata?._ner_original) {
+                                        breakdownParts.push(`NER: ${result.metadata._ner_original.toFixed(4)} → ${result.score.toFixed(4)}`);
+                                    }
+                                    if (result.metadata?._reranker_score) {
+                                        breakdownParts.push(`Reranker: ${result.metadata._reranker_score.toFixed(4)}`);
+                                    }
+                                    if (result.metadata?._llm_reranker_score !== undefined) {
+                                        breakdownParts.push(`LLM: ${result.metadata._llm_reranker_score.toFixed(4)}`);
+                                    }
+                                    const breakdownStr = breakdownParts.length > 0 ? ` (${breakdownParts.join(', ')})` : '';
+
+                                    return (
+                                        <div key={idx} className="card">
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                                                <span className="badge badge-success">
+                                                    Score: {result.score.toFixed(4)}{breakdownStr}
+                                                </span>
+                                                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Chunk ID: {result.chunk_id}</span>
+                                            </div>
+                                            <p style={{ margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{result.content}</p>
                                         </div>
-                                        <p style={{ margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{result.content}</p>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             {results.length === 0 && !isSearching && (
                                 <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem' }}>
                                     Run a query to see results.
@@ -405,7 +483,7 @@ export default function KnowledgeBaseDetail() {
                     </div>
 
                     <div className="card" style={{ height: 'fit-content' }}>
-                        <h3 style={{ marginTop: 0 }}>Configuration</h3>
+                        <h3 style={{ marginTop: 0 }}>Retrieval Pipeline Configuration</h3>
                         <div style={{ marginBottom: '1rem' }}>
                             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Search Strategy</label>
                             <select
@@ -421,7 +499,14 @@ export default function KnowledgeBaseDetail() {
                         </div>
                         <div style={{ marginBottom: '1rem' }}>
                             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Top K</label>
-                            <input type="number" className="input" defaultValue={5} />
+                            <input
+                                type="number"
+                                className="input"
+                                value={topK}
+                                onChange={(e) => setTopK(parseInt(e.target.value) || 5)}
+                                min={1}
+                                max={20}
+                            />
                         </div>
                         <div style={{ marginBottom: '1rem' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
@@ -457,6 +542,123 @@ export default function KnowledgeBaseDetail() {
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
                                 All results are scored using cosine similarity (0 = unrelated, 1 = identical).
                                 {searchStrategy === '2-stage' && ' For 2-stage, Cross-Encoder scores are already 0-1 normalized.'}
+                            </div>
+                        </div>
+
+                        {/* Reranker Configuration */}
+                        {searchStrategy !== '2-stage' && (
+                            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem', marginTop: '1rem' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', cursor: 'pointer' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={useReranker}
+                                        onChange={(e) => setUseReranker(e.target.checked)}
+                                        style={{ cursor: 'pointer' }}
+                                    />
+                                    <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                                        Use Reranker (Cross-Encoder)
+                                    </span>
+                                </label>
+
+                                {useReranker && (
+                                    <div style={{ paddingLeft: '1.5rem' }}>
+                                        <div style={{ marginBottom: '0.75rem' }}>
+                                            <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '0.25rem', color: 'var(--text-secondary)' }}>
+                                                Reranker Top-K
+                                            </label>
+                                            <input
+                                                type="number"
+                                                className="input"
+                                                style={{ fontSize: '0.875rem' }}
+                                                value={rerankerTopK}
+                                                onChange={(e) => setRerankerTopK(parseInt(e.target.value) || 5)}
+                                                min={1}
+                                                max={20}
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                                                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                                    Reranker Score Threshold
+                                                </label>
+                                                <span style={{ fontSize: '0.75rem', fontWeight: 500 }}>
+                                                    {rerankerThreshold.toFixed(2)}
+                                                </span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                style={{ width: '100%' }}
+                                                min="0"
+                                                max="1"
+                                                step="0.05"
+                                                value={rerankerThreshold}
+                                                onChange={(e) => setRerankerThreshold(parseFloat(e.target.value))} />
+                                            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                                                Filters reranked results by minimum score
+                                            </div>
+                                        </div>
+
+                                        {/* LLM Reranker Option */}
+                                        <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={useLLMReranker}
+                                                    onChange={(e) => setUseLLMReranker(e.target.checked)}
+                                                    style={{ cursor: 'pointer' }}
+                                                />
+                                                <span style={{ fontSize: '0.75rem', fontWeight: 500 }}>
+                                                    Use LLM for Reranking
+                                                </span>
+                                            </label>
+                                            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '0.25rem', marginLeft: '1.5rem' }}>
+                                                Uses GPT-3.5 for more accurate entity-aware evaluation (slower, requires API key)
+                                            </div>
+
+                                            {useLLMReranker && (
+                                                <div style={{ marginTop: '0.0rem', paddingLeft: '1.5rem' }}>
+                                                    <label style={{ fontSize: '0.7rem', display: 'block', marginBottom: '0.25rem', color: 'var(--text-secondary)' }}>
+                                                        Chunk Strategy
+                                                    </label>
+                                                    <select
+                                                        className="input"
+                                                        value={llmChunkStrategy}
+                                                        onChange={(e) => setLlmChunkStrategy(e.target.value)}
+                                                        style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
+                                                    >
+                                                        <option value="full">Full (최정확, 느림, 비용↑)</option>
+                                                        <option value="smart">Smart (엔티티 중심)</option>
+                                                        <option value="limited">Limited (1500자, 빠름)</option>
+                                                    </select>
+                                                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                                                        {llmChunkStrategy === 'full' && 'Sends entire chunk to LLM (most accurate)'}
+                                                        {llmChunkStrategy === 'smart' && 'Sends entity-relevant snippets (balanced)'}
+                                                        {llmChunkStrategy === 'limited' && 'Sends first 1500 chars (fastest, cheapest)'}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* NER Filter */}
+                        <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem', marginTop: '1rem' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={useNER}
+                                    onChange={(e) => setUseNER(e.target.checked)}
+                                    style={{ cursor: 'pointer' }}
+                                />
+                                <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                                    Use NER Filter (Entity Matching)
+                                </span>
+                            </label>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.25rem', marginLeft: '1.5rem' }}>
+                                Penalizes results that don't contain entities found in the query (names, places, etc.)
                             </div>
                         </div>
                     </div>

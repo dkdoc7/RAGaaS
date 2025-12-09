@@ -46,7 +46,14 @@ class RetrievalRequest(BaseModel):
     query: str
     top_k: int = 5
     score_threshold: float = 0.5
-    strategy: str = "ann" # keyword, ann, hybrid, 2-stage
+    strategy: str = "ann"  # keyword, ann, hybrid, 2-stage
+    use_reranker: bool = False
+    reranker_top_k: int = 5
+    reranker_threshold: float = 0.0
+    use_llm_reranker: bool = False  # Use LLM instead of Cross-Encoder
+    llm_chunk_strategy: str = "full"  # full, smart, limited (1500 chars)
+    use_ner: bool = False  # Named Entity Recognition filter
+
 
 class RetrievalResult(BaseModel):
     chunk_id: str

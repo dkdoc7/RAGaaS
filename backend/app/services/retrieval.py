@@ -268,4 +268,233 @@ class RetrievalService:
         
         return final_results[:top_k]
 
+    async def rerank_results(
+        self,
+        query: str,
+        results: List[Dict],
+        top_k: int = 5,
+        threshold: float = 0.0
+    ) -> List[Dict]:
+        """
+        Rerank results using Cross-Encoder but preserve cosine similarity scores.
+        
+        Args:
+            query: Search query
+            results: List of initial search results
+            top_k: Number of results to return after reranking
+            threshold: Minimum reranker score threshold (0-1) for filtering
+        
+        Returns:
+            Results reranked by Cross-Encoder but with cosine similarity scores
+        """
+        if not results:
+            return []
+        
+        # Get reranker model
+        reranker = self._get_reranker()
+        
+        # Prepare query-document pairs for reranking
+        pairs = [[query, result['content']] for result in results]
+        
+        # Get reranker scores (-inf to +inf range)
+        reranker_scores = reranker.predict(pairs)
+        
+        # Normalize reranker scores to 0-1 using sigmoid for filtering
+        import math
+        normalized_scores = [1 / (1 + math.exp(-score)) for score in reranker_scores]
+        
+        # Attach reranker scores temporarily for filtering and sorting
+        for result, reranker_score in zip(results, normalized_scores):
+            result['_reranker_score'] = float(reranker_score)
+        
+        # Filter by reranker threshold
+        filtered_results = [r for r in results if r['_reranker_score'] >= threshold]
+        
+        # Sort by reranker score (descending)
+        filtered_results.sort(key=lambda x: x['_reranker_score'], reverse=True)
+        
+        # Get top-k
+        top_results = filtered_results[:top_k]
+        
+        # Now recalculate cosine similarity for final scores
+        # Get query embedding
+        query_embeddings = await embedding_service.get_embeddings([query])
+        query_vec = query_embeddings[0]
+        
+        # Calculate cosine similarity for each result
+        for result in top_results:
+            # Get chunk embedding from result (should be available from initial search)
+            # If not available, we need to re-embed
+            content = result['content']
+            content_embeddings = await embedding_service.get_embeddings([content])
+            content_vec = content_embeddings[0]
+            
+            # Calculate cosine similarity
+            cosine_score = self._cosine_similarity(query_vec, content_vec)
+            
+            # Store reranker score in metadata before replacing
+            if 'metadata' not in result:
+                result['metadata'] = {}
+            result['metadata']['_reranker_score'] = result['_reranker_score']
+            
+            # Set final score to cosine similarity
+            result['score'] = cosine_score
+            
+            # Remove temporary reranker score from top level
+            result.pop('_reranker_score', None)
+        
+        # Results are already sorted by reranker score
+        # We keep that order but show cosine similarity scores
+        return top_results
+
+    async def llm_rerank_results(
+        self,
+        query: str,
+        results: List[Dict],
+        top_k: int = 5,
+        threshold: float = 0.0
+    ) -> List[Dict]:
+        """
+        Rerank results using LLM (OpenAI) for more accurate relevance evaluation.
+        
+        Args:
+            query: Search query
+            results: List of initial search results
+            top_k: Number of results to return after reranking
+            threshold: Minimum relevance score threshold (0-1)
+        
+        Returns:
+            Results reranked by LLM with relevance scores
+        """
+        if not results:
+            return []
+        
+        from openai import AsyncOpenAI
+        from app.core.config import settings
+        import asyncio
+        
+        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        
+        # Prepare prompts for parallel evaluation
+        async def evaluate_relevance(result: Dict) -> tuple[Dict, float]:
+            # Prepare chunk based on strategy
+            from app.services.ner import ner_service
+            
+            chunk_content = result['content']
+            strategy = getattr(self, '_llm_chunk_strategy', 'full')
+            
+            if strategy == 'limited':
+                # Method 1: 1500 character limit
+                chunk_content = chunk_content[:1500]
+                if len(result['content']) > 1500:
+                    chunk_content += "..."
+                    
+            elif strategy == 'smart':
+                # Method 2: Smart truncation - extract entities and surrounding context
+                if len(chunk_content) > 1000:
+                    # Extract entities from query
+                    query_entities = ner_service.extract_entities(query)
+                    
+                    if query_entities:
+                        # Find entity positions in chunk
+                        snippets = []
+                        for entity in query_entities:
+                            pos = chunk_content.find(entity)
+                            if pos != -1:
+                                # Extract ±300 chars around entity
+                                start = max(0, pos - 300)
+                                end = min(len(chunk_content), pos + 300)
+                                snippet = chunk_content[start:end]
+                                if start > 0:
+                                    snippet = "..." + snippet
+                                if end < len(chunk_content):
+                                    snippet = snippet + "..."
+                                snippets.append(snippet)
+                        
+                        if snippets:
+                            chunk_content = "\n\n".join(snippets)
+                        else:
+                            # No entities found, use beginning + middle
+                            mid = len(chunk_content) // 2
+                            chunk_content = chunk_content[:500] + "\n\n...\n\n" + chunk_content[mid-250:mid+250]
+                    else:
+                        # No entities in query, use beginning + middle
+                        mid = len(chunk_content) // 2
+                        chunk_content = chunk_content[:500] + "\n\n...\n\n" + chunk_content[mid-250:mid+250]
+            
+            # Method 3 (full) is already the default - use entire chunk_content
+            
+            prompt = f"""You are evaluating how well a text chunk answers a specific query.
+
+Query: {query}
+
+Text Chunk:
+{chunk_content}
+
+Scoring Guidelines:
+- 1.0: Perfect match - chunk directly and completely answers the query with all requested information
+- 0.8-0.9: Very relevant - chunk contains the answer but may include extra information
+- 0.5-0.7: Partially relevant - chunk is related but doesn't fully answer the query
+- 0.2-0.4: Weakly relevant - chunk is on the same topic but missing key information
+- 0.0-0.1: Not relevant - chunk doesn't help answer the query
+
+Important:
+- If the query asks about a specific person/entity, the chunk MUST mention that exact person/entity to score above 0.5
+- If the chunk answers the question completely, give a high score (0.8+) regardless of extra content
+
+Output ONLY a single number between 0.0 and 1.0, nothing else."""
+
+            
+            try:
+                response = await client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "You are a relevance scoring assistant. Output only a single number between 0.0 and 1.0."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0,
+                    max_tokens=10
+                )
+                
+                score_text = response.choices[0].message.content.strip()
+                llm_score = float(score_text)
+                llm_score = max(0.0, min(1.0, llm_score))  # Clamp to 0-1
+                
+                print(f"[LLM Reranker] Score: {llm_score:.4f} for chunk: {result['content'][:50]}...")
+                
+                return (result, llm_score)
+            except Exception as e:
+                import traceback
+                print(f"[LLM Reranker] ERROR: {str(e)}")
+                print(f"[LLM Reranker] ERROR Type: {type(e).__name__}")
+                print(f"[LLM Reranker] Traceback: {traceback.format_exc()}")
+                return (result, 0.0)
+        
+        # Evaluate all results in parallel
+        tasks = [evaluate_relevance(result) for result in results]
+        evaluated = await asyncio.gather(*tasks)
+        
+        # Attach LLM scores to results
+        for result, llm_score in evaluated:
+            # Store LLM score in metadata
+            if 'metadata' not in result:
+                result['metadata'] = {}
+            result['metadata']['_llm_reranker_score'] = llm_score
+            
+            # Use LLM score for sorting temporarily
+            result['_llm_sort_score'] = llm_score
+        
+        # Filter by LLM threshold
+        filtered_results = [r for r in results if r['_llm_sort_score'] >= threshold]
+        
+        # Sort by LLM score (descending)
+        filtered_results.sort(key=lambda x: x['_llm_sort_score'], reverse=True)
+        
+        # Get top-k and clean up temporary score
+        top_results = filtered_results[:top_k]
+        for result in top_results:
+            result.pop('_llm_sort_score', None)
+        
+        return top_results
+
 retrieval_service = RetrievalService()
