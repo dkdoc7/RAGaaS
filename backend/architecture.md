@@ -83,3 +83,47 @@ backend/app/
 *   **Factory Pattern**: Used to instantiate Retrieval Strategies.
 *   **Facade Pattern**: The Ingestion Service acts as a facade over Parsing, Chunking, and Embedding.
 
+
+## 5. Detailed Coding Standards & Extension Rules
+
+To maintain long-term stability and scalability, all new code MUST adhere to the following rules.
+
+### 5.1 Naming Conventions
+*   **Classes**: `PascalCase`. Noun-based for Models/Schemas (`KnowledgeBase`), Verb-based for Services (`RetrievalService`, `VectorStrategy`).
+*   **Functions/Methods**: `snake_case`. Must be descriptive (e.g., `calculate_vector_similarity` instead of `calc_sim`).
+*   **Variables**: `snake_case`. Boolean variables should start with `is_`, `has_`, or `enable_` (e.g., `is_active`, `enable_reranker`).
+*   **Constants**: `UPPER_SNAKE_CASE` (e.g., `MAX_RETRY_COUNT`).
+*   **Files**: `snake_case.py`. Matches the primary class or module purpose (e.g., `knowledge_base.py`).
+
+### 5.2 File Creation Criteria
+*   **New File Required When**:
+    *   A class exceeds 300 lines (Single Responsibility Principle violation).
+    *   A new domain concept is introduced (e.g., `billing.py`, `analytics.py`).
+    *   Implementing a new Strategy (e.g., `graph.py` under `retrieval/`).
+*   **Do NOT Create New File When**:
+    *   Adding a helper function that is only used by one existing file (make it private `_helper`).
+    *   Adding a minor utility (add to `utils/xxx.py`).
+
+### 5.3 Responsibility Boundaries
+*   **API Layer (`app/api`)**:
+    *   **Allowed**: Param validation, HTTP status codes, calling Services.
+    *   **Prohibited**: SQL queries, business logic loops, direct external API calls (e.g., OpenAI).
+*   **Service Layer (`app/services`)**:
+    *   **Allowed**: Complex logic, DB transactions, detailed error handling.
+    *   **Prohibited**: Returning `HTTPException` (raise custom exceptions or let API layer handle it), depending on `UploadFile` (use bytes/streams).
+*   **Core Layer (`app/core`)**:
+    *   **Allowed**: Singleton setups.
+    *   **Prohibited**: Business logic that changes frequently. **Consider this layer "Frozen"** unless infrastructure changes.
+
+### 5.4 Mutation Rules (Immutable vs Mutable)
+*   **Immutable (Touch with Caution)**: 
+    *   `app/core/database.py`: Don't change session management lightly.
+    *   `app/core/config.py`: Only append new keys; never remove existing ones without migration plan.
+*   **Mutable (Open for Extension)**:
+    *   `app/services/retrieval/*`: Add new files for new algorithms.
+    *   `app/schemas/*`: Add fields for new requirements (backward compatible).
+
+### 5.5 Internal vs External Access
+*   **Private Implementation**: Prefix with `_` (e.g., `_cosine_similarity`). These should NOT be called from outside the class/module.
+*   **Public Interface**: Explicitly exported in `__init__.py` if it's a package.
+*   **LLM Guideline**: When implementing a feature, **always check `__init__.py`** to see what is exposed. Do not import from internal sub-modules if a public facade exists.
