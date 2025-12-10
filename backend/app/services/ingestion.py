@@ -7,8 +7,13 @@ from app.models.document import Document, DocumentStatus
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List
+import logging
 
 from app.core.database import SessionLocal, get_db
+from app.services.entity_extraction import entity_extraction_service
+from app.services.graph_service import graph_service
+
+logger = logging.getLogger(__name__)
 
 class IngestionService:
     async def process_document(
@@ -18,7 +23,9 @@ class IngestionService:
         filename: str, 
         file_content: bytes, 
         chunking_strategy: str = "size",
-        chunking_config: str = "{}"
+        chunking_config: str = "{}",
+        enable_graph_rag: bool = False,
+        graph_config: dict = None
     ):
         try:
             # 1. Parse File
@@ -114,7 +121,53 @@ class IngestionService:
             collection.insert(data)
             collection.flush() # Ensure data is visible
             
-            # 5. Update Status to COMPLETED
+            # 5. Graph RAG Processing (if enabled)
+            if enable_graph_rag and graph_config:
+                logger.info(f"Graph RAG enabled for KB {kb_id}, extracting entities and relations...")
+                
+                # Get prompts from config or use None (entity_extraction_service has defaults)
+                entity_prompt = graph_config.get("entity_extraction_prompt")
+                relation_prompt = graph_config.get("relation_extraction_prompt")
+                
+                # Process each chunk
+                for i, chunk_text in enumerate(texts_to_embed):
+                    chunk_id = f"{doc_id}_{i}"
+                    
+                    try:
+                        # Extract entities and relations (service will use defaults if prompts are None)
+                        extraction_result = entity_extraction_service.extract_entities_relations(
+                            chunk_text=chunk_text,
+                            entity_prompt=entity_prompt,
+                            relation_prompt=relation_prompt
+                        )
+                        
+                        entities = extraction_result.get("entities", [])
+                        relations = extraction_result.get("relations", [])
+                        
+                        if entities:
+                            # Store in Fuseki
+                            success = await graph_service.store_triples(
+                                kb_id=kb_id,
+                                entities=entities,
+                                relations=relations,
+                                chunk_id=chunk_id,
+                                doc_id=doc_id,
+                                chunk_content=chunk_text
+                            )
+                            
+                            if success:
+                                logger.info(f"Stored {len(entities)} entities, {len(relations)} relations for chunk {i}")
+                            else:
+                                logger.warning(f"Failed to store RDF triples for chunk {i}")
+                        else:
+                            logger.info(f"No entities extracted from chunk {i}")
+                    
+                    except Exception as e:
+                        logger.error(f"Error processing chunk {i} for Graph RAG: {e}", exc_info=True)
+                        # Continue processing other chunks even if one fails
+                        continue
+            
+            # 6. Update Status to COMPLETED
             async with SessionLocal() as db:
                 result = await db.execute(select(Document).filter(Document.id == doc_id))
                 doc = result.scalars().first()
@@ -132,7 +185,7 @@ class IngestionService:
                     })
         except Exception as e:
             # Update status to ERROR on failure
-            print(f"Error processing document {doc_id}: {str(e)}")
+            logger.error(f"Error processing document {doc_id}: {str(e)}", exc_info=True)
             try:
                 async with SessionLocal() as db:
                     result = await db.execute(select(Document).filter(Document.id == doc_id))
@@ -150,6 +203,6 @@ class IngestionService:
                             "filename": filename
                         })
             except Exception as db_err:
-                print(f"Error updating document status to ERROR: {str(db_err)}")
+                logger.error(f"Error updating document status to ERROR: {str(db_err)}", exc_info=True)
 
 ingestion_service = IngestionService()

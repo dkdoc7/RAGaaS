@@ -16,3 +16,6 @@ langchain-openai
 rank-bm25
 numpy
 spacy
+rdflib>=7.0.0
+SPARQLWrapper>=2.0.0
+httpx>=0.24.0

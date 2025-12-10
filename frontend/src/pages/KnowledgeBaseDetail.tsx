@@ -34,6 +34,13 @@ export default function KnowledgeBaseDetail() {
     // NER State
     const [useNER, setUseNER] = useState(false);
 
+    // Graph RAG State
+    const [useGraphSearch, setUseGraphSearch] = useState(false);
+    const [vectorWeight, setVectorWeight] = useState<number>(0.6);
+    const [graphWeight, setGraphWeight] = useState<number>(0.4);
+    const [maxHops, setMaxHops] = useState<number>(2);
+    const [graphMergeStrategy, setGraphMergeStrategy] = useState<string>('hybrid');
+
     // Chunk Viewer State
     const [selectedDoc, setSelectedDoc] = useState<any>(null);
     const [chunks, setChunks] = useState<any[]>([]);
@@ -149,7 +156,12 @@ export default function KnowledgeBaseDetail() {
                 reranker_threshold: rerankerThreshold,
                 use_llm_reranker: useLLMReranker,
                 llm_chunk_strategy: llmChunkStrategy,
-                use_ner: useNER
+                use_ner: useNER,
+                use_graph_search: useGraphSearch && kb?.enable_graph_rag,
+                vector_weight: vectorWeight,
+                graph_weight: graphWeight,
+                max_hops: maxHops,
+                merge_strategy: graphMergeStrategy
             });
             const endTime = performance.now();
             setSearchDuration(endTime - startTime);
@@ -218,9 +230,9 @@ export default function KnowledgeBaseDetail() {
                             </div>
                         </div>
                         <div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Similarity Metric</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Graph RAG</div>
                             <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>
-                                {kb.metric_type === 'COSINE' ? 'Cosine (0-1)' : 'Inner Product'}
+                                {kb.enable_graph_rag ? '✓ Enabled' : 'Disabled'}
                             </div>
                         </div>
                         {kb.chunking_strategy === 'size' && (
@@ -460,16 +472,55 @@ export default function KnowledgeBaseDetail() {
                                     if (result.metadata?._llm_reranker_score !== undefined) {
                                         breakdownParts.push(`LLM: ${result.metadata._llm_reranker_score.toFixed(4)}`);
                                     }
+                                    // Graph RAG Hybrid Breakdown
+                                    if (result.metadata?.vector_score !== undefined && result.metadata?.graph_score !== undefined && result.metadata?.applied_weights) {
+                                        const vScore = result.metadata.vector_score;
+                                        const gScore = result.metadata.graph_score;
+                                        const vWeight = result.metadata.applied_weights.vector;
+                                        const gWeight = result.metadata.applied_weights.graph;
+                                        const vContrib = vScore * vWeight;
+                                        const gContrib = gScore * gWeight;
+                                        breakdownParts.push(`= v(${vContrib.toFixed(4)}) + g(${gContrib.toFixed(4)})`);
+                                    }
+
                                     const breakdownStr = breakdownParts.length > 0 ? ` (${breakdownParts.join(', ')})` : '';
+
+                                    // Graph RAG info
+                                    const source = result.metadata?.source || result.source;
+                                    const hasGraphInfo = source || result.metadata?.vector_score !== undefined;
 
                                     return (
                                         <div key={idx} className="card">
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                                                <span className="badge badge-success">
-                                                    Score: {result.score.toFixed(4)}{breakdownStr}
-                                                </span>
-                                                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Chunk ID: {result.chunk_id}</span>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                                    <span className="badge badge-success">
+                                                        Score: {result.score.toFixed(4)}{breakdownStr}
+                                                    </span>
+                                                    {hasGraphInfo && source && (
+                                                        <span className={`badge ${source === 'hybrid' ? 'badge-warning' : source === 'graph' ? '' : ''}`}
+                                                            style={{
+                                                                background: source === 'hybrid' ? '#10b981' : source === 'graph' ? '#8b5cf6' : '#3b82f6',
+                                                                color: 'white'
+                                                            }}>
+                                                            {source === 'hybrid' ? '🔀 Hybrid' : source === 'graph' ? '🕸️ Graph' : '📊 Vector'}
+                                                        </span>
+                                                    )}
+                                                    {result.metadata?.graph_distance !== undefined && (
+                                                        <span className="badge" style={{ background: '#f3f4f6', color: '#6b7280' }}>
+                                                            {result.metadata.graph_distance}-hop
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Chunk: {result.chunk_id}</span>
                                             </div>
+                                            {hasGraphInfo && (result.metadata?.vector_score !== undefined || result.metadata?.graph_score !== undefined) && (
+                                                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '0.75rem', padding: '0.5rem', background: '#f8fafc', borderRadius: '4px' }}>
+                                                    {result.metadata?.vector_score !== undefined && `Vector: ${result.metadata.vector_score.toFixed(4)}`}
+                                                    {result.metadata?.vector_score !== undefined && result.metadata?.graph_score !== undefined && ' | '}
+                                                    {result.metadata?.graph_score !== undefined && `Graph: ${result.metadata.graph_score.toFixed(4)}`}
+                                                    {result.metadata?.applied_weights && ` (weights: ${result.metadata.applied_weights.vector.toFixed(2)}/${result.metadata.applied_weights.graph.toFixed(2)})`}
+                                                </div>
+                                            )}
                                             <p style={{ margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{result.content}</p>
                                         </div>
                                     );
@@ -661,6 +712,112 @@ export default function KnowledgeBaseDetail() {
                                 Penalizes results that don't contain entities found in the query (names, places, etc.)
                             </div>
                         </div>
+
+                        {/* Graph RAG */}
+                        {kb?.enable_graph_rag && (
+                            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem', marginTop: '1rem', background: '#f8fafc', margin: '1rem -1.5rem -1.5rem', padding: '1.5rem', borderRadius: '0 0 8px 8px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', marginBottom: '1rem' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={useGraphSearch}
+                                        onChange={(e) => setUseGraphSearch(e.target.checked)}
+                                        style={{ cursor: 'pointer' }}
+                                    />
+                                    <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>
+                                        Use Graph RAG Search
+                                    </span>
+                                </label>
+                                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '1rem', marginLeft: '1.5rem' }}>
+                                    Combines vector search with knowledge graph traversal for entity-aware retrieval
+                                </div>
+
+                                {useGraphSearch && (
+                                    <div style={{ paddingLeft: '1rem', background: 'white', padding: '1rem', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                                        {graphMergeStrategy === 'hybrid' && (
+                                            <div style={{ marginBottom: '1rem' }}>
+                                                <div style={{ fontSize: '0.75rem', fontWeight: 500, marginBottom: '0.5rem' }}>Search Weight Balance</div>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                                                    <div>
+                                                        <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem' }}>
+                                                            Vector Weight: {vectorWeight.toFixed(2)}
+                                                        </label>
+                                                        <input
+                                                            type="range"
+                                                            min="0"
+                                                            max="1"
+                                                            step="0.1"
+                                                            value={vectorWeight}
+                                                            onChange={(e) => {
+                                                                const v = parseFloat(e.target.value);
+                                                                setVectorWeight(v);
+                                                                setGraphWeight(1 - v);
+                                                            }}
+                                                            style={{ width: '100%' }}
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem' }}>
+                                                            Graph Weight: {graphWeight.toFixed(2)}
+                                                        </label>
+                                                        <input
+                                                            type="range"
+                                                            min="0"
+                                                            max="1"
+                                                            step="0.1"
+                                                            value={graphWeight}
+                                                            onChange={(e) => {
+                                                                const g = parseFloat(e.target.value);
+                                                                setGraphWeight(g);
+                                                                setVectorWeight(1 - g);
+                                                            }}
+                                                            style={{ width: '100%' }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                                                    Vector: semantic similarity | Graph: entity relationships
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div style={{ marginBottom: '1rem' }}>
+                                            <div style={{ fontSize: '0.75rem', fontWeight: 500, marginBottom: '0.5rem' }}>Merge Strategy</div>
+                                            <select
+                                                className="input"
+                                                value={graphMergeStrategy}
+                                                onChange={(e) => setGraphMergeStrategy(e.target.value)}
+                                                style={{ fontSize: '0.875rem' }}
+                                            >
+                                                <option value="hybrid">Graph + Vector Hybrid</option>
+                                                <option value="graph_only">Graph Only</option>
+                                            </select>
+                                            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                                                Hybrid: Weighted sum of both scores. Only: Pure graph traversal results.
+                                            </div>
+                                        </div>
+
+                                        <div style={{ marginBottom: '0.5rem' }}>
+                                            <div style={{ fontSize: '0.75rem', fontWeight: 500, marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between' }}>
+                                                <span>Max Graph Hops</span>
+                                                <span>{maxHops}</span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="1"
+                                                max="3"
+                                                step="1"
+                                                value={maxHops}
+                                                onChange={(e) => setMaxHops(parseInt(e.target.value))}
+                                                style={{ width: '100%' }}
+                                            />
+                                            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                                                1: Direct relations • 2: Neighbor of neighbor • 3: Far fetch
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

@@ -8,7 +8,8 @@ class KnowledgeBaseBase(BaseModel):
     description: Optional[str] = None
     chunking_strategy: str = "size"
     chunking_config: dict = {}
-    metric_type: str = "COSINE"  # COSINE or IP
+    enable_graph_rag: bool = False
+    graph_config: Optional[dict] = None
 
 class KnowledgeBaseCreate(KnowledgeBaseBase):
     pass
@@ -53,6 +54,14 @@ class RetrievalRequest(BaseModel):
     use_llm_reranker: bool = False  # Use LLM instead of Cross-Encoder
     llm_chunk_strategy: str = "full"  # full, smart, limited (1500 chars)
     use_ner: bool = False  # Named Entity Recognition filter
+    # Graph RAG options
+    use_graph_search: bool = False
+    vector_weight: float = 0.6
+    graph_weight: float = 0.4
+    normalization_method: str = "minmax"  # minmax or zscore
+    merge_strategy: str = "hybrid"  # graph_only, hybrid
+    enable_adaptive_weights: bool = True
+    max_hops: int = 2  # Maximum graph traversal hops (1-3)
 
 
 class RetrievalResult(BaseModel):

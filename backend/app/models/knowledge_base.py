@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime
+from sqlalchemy import Column, String, DateTime, Boolean
 from sqlalchemy.dialects.sqlite import JSON
 from app.core.database import Base
 import uuid
@@ -12,6 +12,7 @@ class KnowledgeBase(Base):
     description = Column(String, nullable=True)
     chunking_strategy = Column(String, default="size")
     chunking_config = Column(JSON, default={})
-    metric_type = Column(String, default="COSINE")  # COSINE or IP
+    enable_graph_rag = Column(Boolean, default=False)
+    graph_config = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

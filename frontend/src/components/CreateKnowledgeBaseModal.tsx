@@ -75,7 +75,7 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
         breakpoint_type: 'percentile',
         breakpoint_amount: 95
     });
-    const [metricType, setMetricType] = useState('COSINE');
+    const [enableGraphRag, setEnableGraphRag] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
 
     if (!isOpen) return null;
@@ -84,19 +84,41 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
         e.preventDefault();
         setIsCreating(true);
         try {
-            await kbApi.create({
+            const payload: any = {
                 name,
                 description,
                 chunking_strategy: strategy,
                 chunking_config: config,
-                metric_type: metricType
-            });
+                enable_graph_rag: enableGraphRag
+            };
+
+            // Add graph_config if Graph RAG is enabled
+            if (enableGraphRag) {
+                payload.graph_config = {
+                    max_hops: 2,
+                    expansion_limit: 50,
+                    normalization_method: "minmax",
+                    merge_strategy: "weighted_sum",
+                    enable_adaptive_weights: true,
+                    adaptive_fallback_rules: {
+                        min_graph_results: 3,
+                        fallback_vector_weight: 0.9,
+                        fallback_graph_weight: 0.1,
+                        relation_keywords: ["관계", "연결", "사이"],
+                        relation_vector_weight: 0.4,
+                        relation_graph_weight: 0.6
+                    }
+                };
+            }
+
+            await kbApi.create(payload);
             onCreateComplete();
             onClose();
             // Reset form
             setName('');
             setDescription('');
             setStrategy('size');
+            setEnableGraphRag(false);
         } catch (err) {
             console.error(err);
             alert('Failed to create Knowledge Base');
@@ -163,53 +185,57 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
                         />
                     </div>
 
-                    <div style={{ marginBottom: '1.5rem' }}>
-                        <LabelWithTooltip
-                            label="Similarity Metric"
-                            tooltip="Cosine: scores 0-1 (normalized). Inner Product: unbounded scores."
-                        />
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                            <div
-                                onClick={() => setMetricType('COSINE')}
-                                style={{
-                                    border: metricType === 'COSINE' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                                    borderRadius: '8px',
-                                    padding: '0.75rem',
-                                    cursor: 'pointer',
-                                    background: metricType === 'COSINE' ? '#eff6ff' : 'white',
-                                    transition: 'all 0.2s',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center'
-                                }}
-                            >
-                                <div>
-                                    <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>Cosine</div>
-                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>0-1 range</div>
+                    <div style={{ marginBottom: '1.5rem', border: '1px solid var(--border)', borderRadius: '8px', padding: '1rem', background: '#f8fafc' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                            <div>
+                                <LabelWithTooltip
+                                    label="Enable Graph RAG"
+                                    tooltip="Uses knowledge graph for entity-based retrieval in addition to vector search"
+                                />
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                                    Combines vector search with graph-based entity/relation extraction
                                 </div>
-                                {metricType === 'COSINE' && <Check size={18} color="var(--primary)" />}
                             </div>
-                            <div
-                                onClick={() => setMetricType('IP')}
-                                style={{
-                                    border: metricType === 'IP' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                                    borderRadius: '8px',
-                                    padding: '0.75rem',
+                            <label style={{ position: 'relative', display: 'inline-block', width: '48px', height: '24px' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={enableGraphRag}
+                                    onChange={(e) => setEnableGraphRag(e.target.checked)}
+                                    style={{ opacity: 0, width: 0, height: 0 }}
+                                />
+                                <span style={{
+                                    position: 'absolute',
                                     cursor: 'pointer',
-                                    background: metricType === 'IP' ? '#eff6ff' : 'white',
-                                    transition: 'all 0.2s',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center'
-                                }}
-                            >
-                                <div>
-                                    <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>Inner Product</div>
-                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Unbounded</div>
-                                </div>
-                                {metricType === 'IP' && <Check size={18} color="var(--primary)" />}
-                            </div>
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    backgroundColor: enableGraphRag ? 'var(--primary)' : '#ccc',
+                                    transition: '0.4s',
+                                    borderRadius: '24px'
+                                }}>
+                                    <span style={{
+                                        position: 'absolute',
+                                        content: '""',
+                                        height: '18px',
+                                        width: '18px',
+                                        left: enableGraphRag ? '26px' : '3px',
+                                        bottom: '3px',
+                                        backgroundColor: 'white',
+                                        transition: '0.4s',
+                                        borderRadius: '50%'
+                                    }} />
+                                </span>
+                            </label>
                         </div>
+                        {enableGraphRag && (
+                            <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'white', borderRadius: '6px', fontSize: '0.875rem' }}>
+                                <div style={{ color: 'var(--text-secondary)' }}>
+                                    ℹ️ Graph RAG will extract entities and relationships from documents to enable contextual search.
+                                    Default configuration will be used (customizable in Settings after creation).
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     <div style={{ marginBottom: '2rem' }}>

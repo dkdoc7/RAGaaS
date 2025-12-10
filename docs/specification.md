@@ -7,10 +7,12 @@
 -   **프론트엔드**: React (Vite)
 -   **백엔드**: FastAPI (Python)
 -   **벡터 데이터베이스**: Milvus
+-   **그래프 데이터베이스**: Apache Jena Fuseki (선택적, Graph RAG용)
 -   **메타데이터 데이터베이스**: SQLite (간편함을 위해 선택, 추후 PostgreSQL로 확장 가능)
 -   **임베딩 모델**: OpenAI `text-embedding-3-small`
 -   **리랭킹 모델**: Cross-Encoder `cross-encoder/ms-marco-MiniLM-L-6-v2`
 -   **키워드 검색**: BM25 (rank-bm25)
+-   **RDF 라이브러리**: RDFLib (Python), SPARQLWrapper
 
 ## 3. 핵심 기능
 
@@ -18,7 +20,8 @@
 -   **지식 베이스 생성**: 이름과 설명을 입력하여 새로운 지식 베이스 생성.
 -   **지식 베이스 목록 조회**: 문서 수, 크기, 마지막 업데이트 시간 등의 메타데이터와 함께 목록 조회.
 -   **지식 베이스 삭제**: 지식 베이스 삭제 시 관련된 모든 문서와 Milvus 컬렉션을 자동으로 삭제 (Cascading Delete).
--   **설정**: 기본 검색 설정 구성 (Top K, Score Threshold), 청킹 전략 및 유사도 측정 방식(COSINE/L2/IP) 선택.
+-   **설정**: 기본 검색 설정 구성 (Top K, Score Threshold), 청킹 전략 선택.
+-   **Graph RAG 옵션**: 선택적으로 Graph RAG 활성화 가능. 활성화 시 Entity/Relation 기반 구조적 검색 지원.
 
 ### 3.2 문서 관리 (Document Management)
 -   **문서 업로드**: TXT, PDF, Markdown 파일 지원.
@@ -90,6 +93,104 @@
 
 ### 3.7 API 통합
 -   **외부 API**: 외부 애플리케이션에서 지식 베이스를 조회할 수 있는 엔드포인트 제공.
+
+### 3.8 Graph RAG (선택적 기능)
+
+**개요**: Graph RAG는 전통적인 벡터 검색과 지식 그래프 기반 추론을 결합하여 더 정확하고 맥락적인 검색 결과를 제공합니다.
+
+#### 3.8.1 아키텍처
+
+**이중 저장소 방식**:
+```
+문서 → 처리 파이프라인
+       ├─ 청킹 → 벡터화 → Milvus 저장        ← 비정형 검색 (의미적 유사도)
+       └─ Entity/Relation 추출 → RDF → Jena Fuseki 저장 ← 구조적 검색 (추론 기반)
+```
+
+**검색 프로세스**:
+```
+사용자 질문
+ ├─ Milvus → 코사인 유사도 기반 chunk 검색 (Top-K)
+ ├─ Fuseki → 엔티티/관계 기반 그래프 확장 (멀티홉 탐색)
+ │          1) 질문에서 엔티티 추출
+ │          2) 그래프에서 관련 엔티티 찾기 (SPARQL)
+ │          3) N-hop 이웃 노드 탐색
+ │          4) 연결된 청크 수집
+ └─ 통합 → 두 결과 병합 (중복 제거, 점수 정규화) → LLM 컨텍스트 공급
+```
+
+#### 3.8.2 Entity/Relation 추출
+
+**LLM 기반 추출**:
+- **입력**: 문서 청크
+- **출력**: JSON 형식의 엔티티 및 관계 트리플
+  ```json
+  {
+    "entities": [
+      {"id": "e1", "type": "Person", "name": "홍길동"},
+      {"id": "e2", "type": "Organization", "name": "삼성전자"}
+    ],
+    "relations": [
+      {"subject": "e1", "predicate": "works_at", "object": "e2"}
+    ]
+  }
+  ```
+
+**커스터마이징 가능한 프롬프트**:
+- 엔티티 타입 정의 (Person, Organization, Location, Product, Concept 등)
+- 관계 타입 정의 (works_at, located_in, part_of, related_to 등)
+- 도메인별 추출 패턴 (의료, 법률, 기술 문서 등)
+
+**RDF 변환**:
+```turtle
+@prefix kb: <http://example.org/kb/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+kb:e1 rdf:type kb:Person ;
+      kb:name "홍길동" ;
+      kb:works_at kb:e2 ;
+      kb:mentioned_in kb:chunk_123 .
+
+kb:e2 rdf:type kb:Organization ;
+      kb:name "삼성전자" .
+
+kb:chunk_123 rdf:type kb:TextChunk ;
+             kb:content "..." ;
+             kb:doc_id "doc_456" .
+```
+
+#### 3.8.3 지식 베이스 설정
+
+**Graph RAG 활성화 시 추가 설정**:
+- **청킹 설정**:
+  - `chunk_size`: 청크 크기 (기본값: 1000)
+  - `chunk_overlap`: 오버랩 크기 (기본값: 200)
+- **엔티티 추출 프롬프트**: 커스터마이징 가능
+- **관계 추출 프롬프트**: 커스터마이징 가능
+- **그래프 검색 옵션**:
+  - `max_hops`: 최대 탐색 깊이 (1-3, 기본값: 2)
+  - `expansion_limit`: 확장 시 최대 노드 수 (기본값: 50)
+
+#### 3.8.4 하이브리드 검색 전략
+
+Graph RAG 활성화 시, 기존 검색 전략에 그래프 기반 검색이 추가됩니다:
+
+1. **Vector Search (Milvus)**: 질문과 의미적으로 유사한 청크 검색
+2. **Graph Search (Fuseki)**: 
+   - 질문에서 엔티티 추출
+   - SPARQL로 관련 엔티티 및 관계 탐색
+   - 연결된 청크 ID 수집
+3. **Result Fusion**:
+   - 벡터 검색 점수와 그래프 거리 점수를 정규화
+   - 가중 평균으로 최종 점수 계산 (기본 비율: 벡터 0.6, 그래프 0.4)
+   - 중복 제거 후 Top-K 반환
+
+#### 3.8.5 장점
+
+- **정확도 향상**: 엔티티 중심 검색으로 관련성 높은 결과 제공
+- **맥락 확장**: 멀티홉 탐색으로 직접 매칭되지 않는 관련 정보도 발견
+- **추론 가능**: 관계 그래프를 통한 간접적 연결 발견
+- **투명성**: 검색 경로 추적 가능 (엔티티 → 관계 → 청크)
 
 ## 4. API 설계 (FastAPI)
 

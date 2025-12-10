@@ -45,7 +45,9 @@ async def upload_document(
         doc.filename,
         content,
         kb.chunking_strategy,
-        kb.chunking_config
+        kb.chunking_config,
+        kb.enable_graph_rag,
+        kb.graph_config if kb.graph_config else {}
     )
     
     return doc

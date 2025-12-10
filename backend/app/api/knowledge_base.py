@@ -9,6 +9,7 @@ from app.schemas import KnowledgeBaseCreate, KnowledgeBase
 from app.core.milvus import create_collection, utility, connect_milvus
 from app.models.document import Document as DocModel
 from sqlalchemy import delete
+from app.services.graph_service import graph_service
 
 router = APIRouter()
 
@@ -19,19 +20,27 @@ async def create_knowledge_base(kb: KnowledgeBaseCreate, db: AsyncSession = Depe
         description=kb.description,
         chunking_strategy=kb.chunking_strategy,
         chunking_config=kb.chunking_config,
-        metric_type=kb.metric_type
+        enable_graph_rag=kb.enable_graph_rag,
+        graph_config=kb.graph_config
     )
     db.add(db_kb)
     await db.commit()
     await db.refresh(db_kb)
     
-    # Create Milvus collection
+    # Create Milvus collection (always use COSINE metric)
     try:
-        create_collection(db_kb.id, metric_type=db_kb.metric_type)
+        create_collection(db_kb.id, metric_type="COSINE")
     except Exception as e:
-        # Rollback if Milvus fails? Or just log error?
-        # For now, let's assume it works or we handle it later
         print(f"Failed to create Milvus collection: {e}")
+    
+    # Create Fuseki dataset if Graph RAG is enabled
+    if kb.enable_graph_rag:
+        try:
+            success = await graph_service.create_kb_dataset(db_kb.id)
+            if not success:
+                print(f"Warning: Failed to create Fuseki dataset for KB {db_kb.id}")
+        except Exception as e:
+            print(f"Error creating Fuseki dataset: {e}")
         
     return db_kb
 
@@ -78,7 +87,8 @@ async def list_knowledge_bases(skip: int = 0, limit: int = 100, db: AsyncSession
             "updated_at": kb.updated_at,
             "chunking_strategy": kb.chunking_strategy,
             "chunking_config": kb.chunking_config,
-            "metric_type": kb.metric_type,
+            "enable_graph_rag": kb.enable_graph_rag,
+            "graph_config": kb.graph_config,
             "document_count": row[1],
             "total_size": collection_size
         }
@@ -101,6 +111,13 @@ async def delete_knowledge_base(kb_id: str, db: AsyncSession = Depends(get_db)):
     if kb is None:
         raise HTTPException(status_code=404, detail="Knowledge Base not found")
     
+    # Delete Fuseki dataset if Graph RAG was enabled
+    if kb.enable_graph_rag:
+        try:
+            await graph_service.delete_kb_dataset(kb_id)
+        except Exception as e:
+            print(f"Error deleting Fuseki dataset: {e}")
+    
     # Delete all associated documents
     await db.execute(delete(DocModel).where(DocModel.kb_id == kb_id))
     
@@ -111,12 +128,10 @@ async def delete_knowledge_base(kb_id: str, db: AsyncSession = Depends(get_db)):
     try:
         connect_milvus()
         collection_name = f"kb_{kb_id.replace('-', '_')}"
-        # Try to drop directly without checking existence to avoid race conditions/flakiness
         try:
             col = Collection(collection_name)
             col.drop()
         except Exception:
-            # Fallback or ignore if already gone
             pass
             
     except Exception as e:

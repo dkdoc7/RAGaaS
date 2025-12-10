@@ -9,7 +9,7 @@ const api = axios.create({
 
 export const kbApi = {
     list: () => api.get('/knowledge-bases/'),
-    create: (data: { name: string; description: string; chunking_strategy: string; chunking_config: any; metric_type?: string }) => api.post('/knowledge-bases/', data),
+    create: (data: { name: string; description: string; chunking_strategy: string; chunking_config: any; enable_graph_rag?: boolean; graph_config?: any }) => api.post('/knowledge-bases/', data),
     get: (id: string) => api.get(`/knowledge-bases/${id}`),
     delete: (id: string) => api.delete(`/knowledge-bases/${id}`),
 };
@@ -41,6 +41,11 @@ export const retrievalApi = {
         use_llm_reranker?: boolean;
         llm_chunk_strategy?: string;
         use_ner?: boolean;
+        use_graph_search?: boolean;
+        vector_weight?: number;
+        graph_weight?: number;
+        max_hops?: number;
+        merge_strategy?: string;
     }) => api.post(`/knowledge-bases/${kbId}/retrieve`, data),
 };
 

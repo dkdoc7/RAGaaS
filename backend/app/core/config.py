@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     MILVUS_HOST: str = "localhost"
     MILVUS_PORT: str = "19530"
     
+    # Fuseki (Graph RAG)
+    FUSEKI_URL: str = "http://localhost:3030"
+    
     # OpenAI
     OPENAI_API_KEY: str = ""
     
