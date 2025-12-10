@@ -1,6 +1,6 @@
 import io
 from pypdf import PdfReader
-from app.services.chunking import chunking_service
+from .text_splitter import chunking_service
 from app.services.embedding import embedding_service
 from app.core.milvus import create_collection
 from app.models.document import Document, DocumentStatus
