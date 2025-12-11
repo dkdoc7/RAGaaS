@@ -9,6 +9,7 @@ class KnowledgeBaseBase(BaseModel):
     chunking_strategy: str = "size"
     chunking_config: dict = {}
     metric_type: str = "COSINE"  # COSINE or IP
+    enable_graph_rag: bool = False
 
 class KnowledgeBaseCreate(KnowledgeBaseBase):
     pass

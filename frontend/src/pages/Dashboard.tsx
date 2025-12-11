@@ -10,9 +10,11 @@ interface KnowledgeBase {
     name: string;
     description: string;
     created_at: string;
+    updated_at: string;
     chunking_strategy?: string;
     document_count?: number;
     total_size?: number;
+    enable_graph_rag?: boolean;
 }
 
 export default function Dashboard() {
@@ -66,59 +68,151 @@ export default function Dashboard() {
                 </button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '1.5rem' }}>
                 {kbs.map((kb) => (
                     <Link to={`/kb/${kb.id}`} key={kb.id} style={{ textDecoration: 'none', color: 'inherit' }}>
-                        <div className="card" style={{ height: '100%', display: 'flex', flexDirection: 'column', transition: 'transform 0.2s' }}>
+                        <div
+                            className="card"
+                            style={{
+                                height: '100%',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                position: 'relative',
+                                transition: 'all 0.2s',
+                                cursor: 'pointer'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.transform = 'translateY(-2px)';
+                                e.currentTarget.style.boxShadow = '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'translateY(0)';
+                                e.currentTarget.style.boxShadow = '0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)';
+                            }}
+                        >
+                            {/* Header with icon and delete button */}
                             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                                <div style={{ display: 'flex', gap: '0.75rem', flex: 1 }}>
-                                    <div style={{ padding: '0.75rem', background: '#eff6ff', borderRadius: '8px', color: 'var(--primary)', flexShrink: 0 }}>
+                                {/* Icon and title */}
+                                <div style={{ display: 'flex', gap: '1rem', flex: 1 }}>
+                                    <div style={{
+                                        padding: '0.75rem',
+                                        background: '#eff6ff',
+                                        borderRadius: '8px',
+                                        color: 'var(--primary)',
+                                        flexShrink: 0,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center'
+                                    }}>
                                         <Database size={24} />
                                     </div>
-                                    <div style={{ flex: 1, fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginBottom: '0.25rem' }}>
-                                            <Database size={12} />
-                                            <span>
-                                                {kb.chunking_strategy === 'size' && 'Fixed Size'}
-                                                {kb.chunking_strategy === 'parent_child' && 'Parent-Child'}
-                                                {kb.chunking_strategy === 'context_aware' && 'Context Aware'}
-                                                {!kb.chunking_strategy && 'N/A'}
-                                            </span>
-                                        </div>
-                                        <div style={{ display: 'flex', gap: '0.75rem' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                                <FileText size={12} />
-                                                <span>{kb.document_count ?? 0} docs</span>
-                                            </div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                                <HardDrive size={12} />
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.125rem', fontWeight: 600 }}>
+                                            {kb.name}
+                                        </h3>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                            {/* Chunking strategy */}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                <Database size={12} />
                                                 <span>
-                                                    {kb.total_size
-                                                        ? kb.total_size >= 1024 * 1024
-                                                            ? `${(kb.total_size / (1024 * 1024)).toFixed(1)} MB`
-                                                            : `${(kb.total_size / 1024).toFixed(1)} KB`
-                                                        : '0 KB'
-                                                    }
+                                                    {kb.chunking_strategy === 'size' && 'Fixed Size'}
+                                                    {kb.chunking_strategy === 'parent_child' && 'Parent-Child'}
+                                                    {kb.chunking_strategy === 'context_aware' && 'Context Aware'}
+                                                    {!kb.chunking_strategy && 'N/A'}
                                                 </span>
+                                                {kb.enable_graph_rag && (
+                                                    <span style={{
+                                                        backgroundColor: '#4d7c0f',
+                                                        color: 'white',
+                                                        fontSize: '0.6rem',
+                                                        padding: '2px 8px',
+                                                        borderRadius: '10px',
+                                                        fontWeight: 600,
+                                                        lineHeight: 1,
+                                                        marginLeft: '4px'
+                                                    }}>
+                                                        Graph
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {/* Document count and size */}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                                    <FileText size={12} />
+                                                    <span>{kb.document_count ?? 0} docs</span>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                                    <HardDrive size={12} />
+                                                    <span>
+                                                        {kb.total_size
+                                                            ? kb.total_size >= 1024 * 1024
+                                                                ? `${(kb.total_size / (1024 * 1024)).toFixed(1)} MB`
+                                                                : `${(kb.total_size / 1024).toFixed(1)} KB`
+                                                            : '0 KB'
+                                                        }
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            {/* Updated timestamp */}
+                                            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                                                Updated: {kb.updated_at ? new Date(kb.updated_at).toLocaleString() : 'N/A'}
                                             </div>
                                         </div>
                                     </div>
                                 </div>
+
+                                {/* Delete button */}
                                 <button
                                     className="btn"
-                                    style={{ padding: '0.5rem', color: 'var(--text-secondary)', flexShrink: 0 }}
+                                    style={{
+                                        padding: '0.5rem',
+                                        color: 'var(--text-secondary)',
+                                        flexShrink: 0,
+                                        background: 'transparent',
+                                        border: 'none'
+                                    }}
                                     onClick={(e) => handleDelete(kb.id, e)}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = '#fee2e2';
+                                        e.currentTarget.style.color = 'var(--danger)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = 'transparent';
+                                        e.currentTarget.style.color = 'var(--text-secondary)';
+                                    }}
                                 >
                                     <Trash2 size={18} />
                                 </button>
                             </div>
-                            <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.25rem' }}>{kb.name}</h3>
-                            <p style={{ color: 'var(--text-secondary)', margin: 0, flex: 1, lineHeight: 1.5, minHeight: '3rem' }}>
+
+                            {/* Description */}
+                            <p style={{
+                                color: 'var(--text-secondary)',
+                                margin: '0 0 1.5rem 0',
+                                flex: 1,
+                                fontSize: '0.875rem',
+                                lineHeight: 1.5,
+                                minHeight: '2.5rem',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                display: '-webkit-box',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical'
+                            }}>
                                 {kb.description || 'No description'}
                             </p>
 
-                            <div style={{ marginTop: '1.5rem', display: 'flex', alignItems: 'center', color: 'var(--primary)', fontWeight: 500, fontSize: '0.875rem' }}>
-                                View Details <ArrowRight size={16} style={{ marginLeft: '0.5rem' }} />
+                            {/* View Details link */}
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                color: 'var(--primary)',
+                                fontWeight: 500,
+                                fontSize: '0.875rem',
+                                gap: '0.5rem'
+                            }}>
+                                View Details
+                                <ArrowRight size={16} />
                             </div>
                         </div>
                     </Link>

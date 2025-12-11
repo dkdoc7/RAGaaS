@@ -1,20 +1,23 @@
 from typing import List, Dict, Any
 from .base import RetrievalStrategy
 from .vector import VectorRetrievalStrategy
+from .graph import GraphRetrievalStrategy
 from app.core.milvus import create_collection
 from app.services.embedding import embedding_service
 from rank_bm25 import BM25Okapi
 import numpy as np
 
 class HybridRetrievalStrategy(RetrievalStrategy):
-    """Combines BM25 and Vector Search results."""
+    """Combines BM25, Vector, and optional Graph Search results."""
     
     def __init__(self):
         self.vector_strategy = VectorRetrievalStrategy()
+        self.graph_strategy = GraphRetrievalStrategy()
 
     async def search(self, kb_id: str, query: str, top_k: int, **kwargs) -> List[Dict[str, Any]]:
         metric_type = kwargs.get("metric_type", "COSINE")
         score_threshold = kwargs.get("score_threshold", 0.0)
+        enable_graph = kwargs.get("enable_graph_search", False)
         
         collection = create_collection(kb_id)
         collection.load()
@@ -51,6 +54,26 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         # 4. Vector Search
         ann_results = await self.vector_strategy.search(kb_id, query, top_k=top_k * 3, metric_type=metric_type, score_threshold=0.0)
         ann_chunk_ids = set([r["chunk_id"] for r in ann_results])
+        # 4.5 Graph Search (Optional)
+        graph_chunk_ids = set()
+        graph_metadata = None
+        if enable_graph:
+            graph_results = await self.graph_strategy.search(kb_id, query, top_k=top_k * 3, **kwargs)
+            
+            # Filter dummy results and capture metadata
+            real_graph_results = []
+            for res in graph_results:
+                if res.get("chunk_id") == "GRAPH_METADATA_ONLY":
+                    # Capture metadata from dummy result
+                    if "graph_metadata" in res:
+                        graph_metadata = res["graph_metadata"]
+                else:
+                    real_graph_results.append(res)
+                    # Capture metadata from real result if first result
+                    if "graph_metadata" in res:
+                        graph_metadata = res["graph_metadata"]
+            
+            graph_chunk_ids = set([r["chunk_id"] for r in real_graph_results])
         
         # 5. Union of results
         combined_indices = set()
@@ -58,6 +81,10 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         
         combined_indices.update(top_bm25_indices)
         for chunk_id in ann_chunk_ids:
+            if chunk_id in chunk_id_to_idx:
+                combined_indices.add(chunk_id_to_idx[chunk_id])
+        
+        for chunk_id in graph_chunk_ids:
             if chunk_id in chunk_id_to_idx:
                 combined_indices.add(chunk_id_to_idx[chunk_id])
                 
@@ -70,6 +97,10 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             if chunk_vector:
                 cosine_score = self._cosine_similarity(query_vec, chunk_vector)
             
+            # Boost score if found in graph?
+            # For now, just rely on the fact that it was included in the candidate set.
+            # Reranker can handle the final ordering better.
+            
             if cosine_score < score_threshold:
                 continue
             
@@ -81,6 +112,11 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             })
             
         final_results.sort(key=lambda x: x["score"], reverse=True)
+        
+        # Attach graph metadata to first result if available
+        if final_results and graph_metadata:
+            final_results[0]["graph_metadata"] = graph_metadata
+            
         return final_results[:top_k]
 
     def _cosine_similarity(self, vec1, vec2) -> float:

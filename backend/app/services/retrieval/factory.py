@@ -3,6 +3,7 @@ from .vector import VectorRetrievalStrategy
 from .keyword import KeywordRetrievalStrategy
 from .hybrid import HybridRetrievalStrategy
 from .two_stage import TwoStageRetrievalStrategy
+from .graph import GraphRetrievalStrategy
 from .reranker import reranking_service
 
 class RetrievalFactory:
@@ -14,6 +15,8 @@ class RetrievalFactory:
             return HybridRetrievalStrategy()
         elif strategy_name == "2-stage":
             return TwoStageRetrievalStrategy()
+        elif strategy_name == "graph":
+            return GraphRetrievalStrategy()
         else:
             return VectorRetrievalStrategy()
 

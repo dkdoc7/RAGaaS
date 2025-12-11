@@ -17,11 +17,13 @@ class RetrievalRequest(BaseModel):
     # Filters
     use_ner: bool = False
     
-    # Graph RAG (Placeholder for future ext)
-    # enable_graph: bool = False
+    # Graph RAG
+    enable_graph_search: bool = False
+    graph_hops: int = 1
 
 class RetrievalResult(BaseModel):
     chunk_id: str
     content: str
     score: float
     metadata: Dict[str, Any] = {}
+    graph_metadata: Optional[Dict[str, Any]] = None

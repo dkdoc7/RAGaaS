@@ -18,6 +18,7 @@ class Document(DocumentBase):
     kb_id: str
     status: DocumentStatus
     created_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
