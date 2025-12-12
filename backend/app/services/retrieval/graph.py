@@ -22,7 +22,7 @@ class GraphRetrievalStrategy(RetrievalStrategy):
     async def search(self, kb_id: str, query: str, top_k: int, **kwargs) -> List[Dict[str, Any]]:
         print(f"DEBUG: Graph Search Start for query: {query}")
         # 1. Extract Entities from Query
-        entities = await self._extract_entities(query)
+        entities = await self._extract_entities(kb_id, query)
         print(f"DEBUG: Extracted entities: {entities}")
         if not entities:
             print(f"No entities found in query: {query}")
@@ -68,8 +68,11 @@ class GraphRetrievalStrategy(RetrievalStrategy):
         
         return results
 
-    async def _extract_entities(self, query: str) -> List[str]:
-        """Extract main entities from the query using LLM."""
+    async def _extract_entities(self, kb_id: str, query: str) -> List[str]:
+        """Extract main entities from the query using LLM and spaCy Gazetteer."""
+        entities = set()
+        
+        # 1. LLM Extraction
         prompt = f"""
         Extract key entities (subjects, objects, concepts, proper nouns) from the search query.
         Include specific terms that might be nodes in a knowledge graph.
@@ -91,10 +94,43 @@ class GraphRetrievalStrategy(RetrievalStrategy):
             )
             content = response.choices[0].message.content
             data = json.loads(content)
-            return data.get("entities", [])
+            for e in data.get("entities", []):
+                entities.add(e)
         except Exception as e:
-            logger.error(f"Error extracting query entities: {e}")
-            return []
+            logger.error(f"Error extracting query entities with LLM: {e}")
+
+        # 2. spaCy Gazetteer Extraction (Use known entities)
+        try:
+            from app.services.ingestion.spacy_processor import SpacyGraphProcessor
+            # Instantiate processor to access known entities map
+            processor = SpacyGraphProcessor(kb_id)
+            
+            # Use inner nlp pipeline directly? Or add a method to processor to extract from query?
+            # Re-using extract_graph_elements seems too heavy as it builds triples.
+            # We just want the entities.
+            
+            # Let's use the processor's resources
+            doc = processor.nlp(query)
+            
+            # Matcher
+            matches = processor.matcher(doc)
+            for match_id, start, end in matches:
+                span = doc[start:end]
+                # Apply same normalization!
+                norm = processor._normalize_entity(span)
+                if norm:
+                    entities.add(norm)
+            
+            # NER (Optional: LLM usually covers this, but spaCy local might catch specific patterns)
+            for ent in doc.ents:
+                norm = processor._normalize_entity(ent)
+                if norm:
+                    entities.add(norm)
+                    
+        except Exception as e:
+            logger.warning(f"Error extracting query entities with spaCy: {e}")
+            
+        return list(entities)
 
     def _sanitize_uri(self, text: str) -> str:
         # Same logic as GraphProcessor
@@ -126,47 +162,24 @@ class GraphRetrievalStrategy(RetrievalStrategy):
         SELECT DISTINCT ?chunkUri
         WHERE {{
             {{
-                # 1. Match Subject Label
-                ?s rdfs:label ?label .
-                FILTER regex(?label, "({regex_pattern})", "i")
-                ?s rel:hasSource ?chunkUri .
-            }}
-            UNION
-            {{
-                # 2. Match Object Label (if object is entity)
-                ?s ?p ?o .
-                ?o rdfs:label ?label .
-                FILTER regex(?label, "({regex_pattern})", "i")
-                ?o rel:hasSource ?chunkUri .
-            }}
-            UNION
-            {{
-                # 3. Match Predicate (relationship name)
-                ?s ?p ?o .
-                FILTER regex(str(?p), "({regex_pattern})", "i")
-                # Both s and o sources are relevant
-                {{ ?s rel:hasSource ?chunkUri }} UNION {{ ?o rel:hasSource ?chunkUri }}
-            }}
-            UNION
-            {{
-                # 4. Hops (Neighbors of matched nodes)
-                # Find nodes matching label, then find their neighbors
+                # 1. Entity-based Traversal (Variable Hops)
+                # Find nodes with matching labels, then traverse graph (both directions)
                 ?start rdfs:label ?label .
                 FILTER regex(?label, "({regex_pattern})", "i")
                 
-                # Forward Hop: start -> p -> neighbor
-                {{
-                    ?start ?p ?neighbor .
-                    FILTER (?p != rel:hasSource)
-                    ?neighbor rel:hasSource ?chunkUri .
-                }}
-                UNION
-                # Backward Hop: neighbor -> p -> start
-                {{
-                    ?neighbor ?p ?start .
-                    FILTER (?p != rel:hasSource)
-                    ?neighbor rel:hasSource ?chunkUri .
-                }}
+                # Property Path: 0 to {hops} steps
+                # Step: Any predicate except hasSource, in forward or inverse direction
+                ?start ( !rel:hasSource | ^!rel:hasSource ){{0,{hops}}} ?reachable .
+                
+                ?reachable rel:hasSource ?chunkUri .
+            }}
+            UNION
+            {{
+                # 2. Predicate-based Match (Direct)
+                # Direct match on relationship names
+                ?s ?p ?o .
+                FILTER regex(str(?p), "({regex_pattern})", "i")
+                {{ ?s rel:hasSource ?chunkUri }} UNION {{ ?o rel:hasSource ?chunkUri }}
             }}
         }}
         LIMIT 100

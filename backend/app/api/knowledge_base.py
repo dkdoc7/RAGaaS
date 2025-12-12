@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
+from dataclasses import asdict
+from app.services.ingestion.entity_store import EntityStore, EntityInfo
 from pymilvus import Collection
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -137,3 +139,40 @@ async def delete_knowledge_base(kb_id: str, db: AsyncSession = Depends(get_db)):
         print(f"Error deleting Fuseki dataset: {e}")
         
     return {"ok": True}
+
+@router.get("/{kb_id}/entities")
+async def list_entities(kb_id: str, db: AsyncSession = Depends(get_db)):
+    # Verify KB exists
+    result = await db.execute(select(KBModel).filter(KBModel.id == kb_id))
+    if not result.scalars().first():
+        raise HTTPException(status_code=404, detail="Knowledge Base not found")
+        
+    store = EntityStore(kb_id)
+    # Return as list
+    return [asdict(e) for e in store.entities.values()]
+
+@router.put("/{kb_id}/entities")
+async def update_entities(kb_id: str, entities: List[dict] = Body(...), db: AsyncSession = Depends(get_db)):
+    # Verify KB exists
+    result = await db.execute(select(KBModel).filter(KBModel.id == kb_id))
+    if not result.scalars().first():
+        raise HTTPException(status_code=404, detail="Knowledge Base not found")
+        
+    store = EntityStore(kb_id)
+    
+    new_entities = {}
+    for e in entities:
+        if 'name' not in e: continue
+        name = e['name']
+        new_entities[name] = EntityInfo(
+            name=name,
+            label=e.get('label', 'UNKNOWN'),
+            count=e.get('count', 1),
+            aliases=e.get('aliases', []),
+            is_promoted=e.get('is_promoted', False)
+        )
+    
+    store.entities = new_entities
+    store.save()
+    
+    return {"ok": True, "count": len(store.entities)}

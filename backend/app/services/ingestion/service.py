@@ -140,7 +140,7 @@ class IngestionService:
                     for i, text in enumerate(texts_to_embed):
                         chunk_id = chunk_ids[i]
                         try:
-                            triples = await graph_processor.extract_graph_elements(text, chunk_id)
+                            triples = await graph_processor.extract_graph_elements(text, chunk_id, kb_id, config)
                             if triples:
                                 fuseki_client.insert_triples(kb_id, triples)
                         except Exception as e:

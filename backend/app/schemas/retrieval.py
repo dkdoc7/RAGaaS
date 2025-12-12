@@ -16,6 +16,16 @@ class RetrievalRequest(BaseModel):
     
     # Filters
     use_ner: bool = False
+    use_llm_keyword_extraction: bool = False
+    
+    # Graph Search
+    enable_graph_search: bool = False
+    graph_hops: int = 1
+    
+    # Brute Force
+    use_brute_force: bool = False
+    brute_force_top_k: int = 1
+    brute_force_threshold: float = 1.5
     
     # Graph RAG
     enable_graph_search: bool = False
@@ -25,5 +35,6 @@ class RetrievalResult(BaseModel):
     chunk_id: str
     content: str
     score: float
+    l2_score: Optional[float] = None
     metadata: Dict[str, Any] = {}
     graph_metadata: Optional[Dict[str, Any]] = None

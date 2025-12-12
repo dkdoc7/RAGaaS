@@ -19,8 +19,13 @@ interface ChatInterfaceProps {
     useLLMReranker: boolean;
     llmChunkStrategy: string;
     useNER: boolean;
+    useLLMKeywordExtraction?: boolean;
     enableGraphSearch: boolean;
     graphHops: number;
+    useBruteForce?: boolean;
+    bruteForceTopK?: number;
+    bruteForceThreshold?: number;
+    onChunksReceived: (chunks: any[]) => void;
 }
 
 export default function ChatInterface({
@@ -34,13 +39,17 @@ export default function ChatInterface({
     useLLMReranker,
     llmChunkStrategy,
     useNER,
+    useLLMKeywordExtraction,
     enableGraphSearch,
-    graphHops
+    graphHops,
+    useBruteForce,
+    bruteForceTopK,
+    bruteForceThreshold,
+    onChunksReceived
 }: ChatInterfaceProps) {
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [currentChunks, setCurrentChunks] = useState<any[]>([]);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
@@ -63,6 +72,9 @@ export default function ChatInterface({
         setInput('');
         setIsLoading(true);
 
+        // Clear previous search results
+        onChunksReceived([]);
+
         try {
             const response = await retrievalApi.chat(kbId, {
                 query: input,
@@ -75,8 +87,12 @@ export default function ChatInterface({
                 use_llm_reranker: useLLMReranker,
                 llm_chunk_strategy: llmChunkStrategy,
                 use_ner: useNER,
+                use_llm_keyword_extraction: useLLMKeywordExtraction,
                 enable_graph_search: enableGraphSearch,
-                graph_hops: graphHops
+                graph_hops: graphHops,
+                use_brute_force: useBruteForce,
+                brute_force_top_k: bruteForceTopK,
+                brute_force_threshold: bruteForceThreshold
             });
 
             const assistantMessage: Message = {
@@ -86,7 +102,9 @@ export default function ChatInterface({
             };
 
             setMessages(prev => [...prev, assistantMessage]);
-            setCurrentChunks(response.data.chunks || []);
+            if (response.data.chunks) {
+                onChunksReceived(response.data.chunks);
+            }
         } catch (error) {
             console.error('Chat error:', error);
             const errorMessage: Message = {
@@ -107,87 +125,86 @@ export default function ChatInterface({
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '1rem' }}>
-            {/* Chat Messages */}
-            <div className="card" style={{
+        <div className="card" style={{
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            border: '1px solid var(--border)',
+            borderRadius: '12px'
+        }}>
+            <h3 style={{ margin: 0, padding: '5px', borderBottom: '1px solid var(--border)' }}>
+                Chat with Knowledge Base
+            </h3>
+
+            <div style={{
                 flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                minHeight: '400px',
-                maxHeight: '600px'
+                overflowY: 'auto',
+                padding: '1rem',
+                background: '#f9fafb'
             }}>
-                <h3 style={{ margin: 0, marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border)' }}>
-                    Chat with Knowledge Base
-                </h3>
+                {messages.length === 0 && (
+                    <div style={{
+                        textAlign: 'center',
+                        color: 'var(--text-secondary)',
+                        padding: '2rem',
+                        fontSize: '0.9rem',
+                        marginTop: '20%'
+                    }}>
+                        <div style={{ marginBottom: '1rem', fontSize: '2rem' }}>💬</div>
+                        Start a conversation by asking a question about your documents.
+                    </div>
+                )}
 
-                <div style={{
-                    flex: 1,
-                    overflowY: 'auto',
-                    padding: '1rem',
-                    background: '#f9fafb',
-                    borderRadius: '8px',
-                    marginBottom: '1rem'
-                }}>
-                    {messages.length === 0 && (
-                        <div style={{
-                            textAlign: 'center',
-                            color: 'var(--text-secondary)',
-                            padding: '2rem',
-                            fontSize: '0.875rem'
-                        }}>
-                            Start a conversation by asking a question about your documents.
-                        </div>
-                    )}
-
-                    {messages.map((msg, idx) => (
+                {messages.map((msg, idx) => (
+                    <div
+                        key={idx}
+                        style={{
+                            marginBottom: '1rem',
+                            display: 'flex',
+                            justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                        }}
+                    >
                         <div
-                            key={idx}
                             style={{
-                                marginBottom: '1rem',
-                                display: 'flex',
-                                justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
-                            }}
-                        >
-                            <div
-                                style={{
-                                    maxWidth: '80%',
-                                    padding: '0.75rem 1rem',
-                                    borderRadius: '12px',
-                                    background: msg.role === 'user' ? 'var(--primary)' : 'white',
-                                    color: msg.role === 'user' ? 'white' : 'var(--text-primary)',
-                                    boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-                                    whiteSpace: 'pre-wrap',
-                                    wordBreak: 'break-word'
-                                }}
-                            >
-                                {msg.content}
-                            </div>
-                        </div>
-                    ))}
-
-                    {isLoading && (
-                        <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: '1rem' }}>
-                            <div style={{
+                                maxWidth: '85%',
                                 padding: '0.75rem 1rem',
                                 borderRadius: '12px',
-                                background: 'white',
-                                boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.5rem'
-                            }}>
-                                <Loader2 size={16} className="spin" />
-                                <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                                    Thinking...
-                                </span>
-                            </div>
+                                background: msg.role === 'user' ? 'var(--primary)' : 'white',
+                                color: msg.role === 'user' ? 'white' : 'var(--text-primary)',
+                                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                                border: msg.role === 'assistant' ? '1px solid var(--border)' : 'none'
+                            }}
+                        >
+                            {msg.content}
                         </div>
-                    )}
+                    </div>
+                ))}
 
-                    <div ref={messagesEndRef} />
-                </div>
+                {isLoading && (
+                    <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: '1rem' }}>
+                        <div style={{
+                            padding: '0.75rem 1rem',
+                            borderRadius: '12px',
+                            background: 'white',
+                            border: '1px solid var(--border)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem'
+                        }}>
+                            <Loader2 size={16} className="spin" />
+                            <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                                Thinking...
+                            </span>
+                        </div>
+                    </div>
+                )}
 
-                {/* Input Area */}
+                <div ref={messagesEndRef} />
+            </div>
+
+            <div style={{ padding: '1rem', borderTop: '1px solid var(--border)', background: 'white', borderBottomLeftRadius: '12px', borderBottomRightRadius: '12px' }}>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <textarea
                         className="input"
@@ -195,8 +212,14 @@ export default function ChatInterface({
                         onChange={(e) => setInput(e.target.value)}
                         onKeyPress={handleKeyPress}
                         placeholder="Ask a question..."
-                        rows={2}
-                        style={{ flex: 1, resize: 'none' }}
+                        rows={1}
+                        style={{
+                            flex: 1,
+                            resize: 'none',
+                            padding: '0.75rem',
+                            minHeight: '45px',
+                            maxHeight: '150px'
+                        }}
                         disabled={isLoading}
                     />
                     <button
@@ -205,11 +228,8 @@ export default function ChatInterface({
                         disabled={isLoading || !input.trim()}
                         style={{
                             alignSelf: 'flex-end',
-                            minWidth: '80px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '0.5rem'
+                            height: '45px',
+                            padding: '0 1.5rem'
                         }}
                     >
                         {isLoading ? <Loader2 size={18} className="spin" /> : <Send size={18} />}
@@ -217,150 +237,6 @@ export default function ChatInterface({
                     </button>
                 </div>
             </div>
-
-            {/* Retrieved Chunks */}
-            {currentChunks.length > 0 && (
-                <>
-                    {/* Graph RAG Metadata */}
-                    {currentChunks[0]?.graph_metadata && (
-                        <div className="card" style={{ background: '#f0f9ff', borderLeft: '4px solid var(--primary)' }}>
-                            <h4 style={{ margin: 0, marginBottom: '1rem', color: 'var(--primary)' }}>
-                                🔍 Graph RAG Search Details
-                            </h4>
-
-                            {/* Extracted Entities */}
-                            <div style={{ marginBottom: '1rem' }}>
-                                <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>
-                                    Extracted Entities:
-                                </div>
-                                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                    {currentChunks[0].graph_metadata.extracted_entities.map((entity: string, idx: number) => (
-                                        <span key={idx} className="badge badge-primary" style={{ fontSize: '0.75rem' }}>
-                                            {entity}
-                                        </span>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Triples */}
-                            {currentChunks[0].graph_metadata.triples && currentChunks[0].graph_metadata.triples.length > 0 && (
-                                <div style={{ marginBottom: '1rem' }}>
-                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>
-                                        Knowledge Graph Triples ({currentChunks[0].graph_metadata.triples.length}):
-                                    </div>
-                                    <div style={{
-                                        maxHeight: '200px',
-                                        overflowY: 'auto',
-                                        background: 'white',
-                                        padding: '0.75rem',
-                                        borderRadius: '6px',
-                                        fontSize: '0.8rem'
-                                    }}>
-                                        {currentChunks[0].graph_metadata.triples.map((triple: any, idx: number) => {
-                                            const formatValue = (val: string) => {
-                                                try {
-                                                    let text = val;
-                                                    if (text.startsWith('http')) {
-                                                        const parts = text.split('/');
-                                                        text = parts[parts.length - 1];
-                                                    }
-                                                    return decodeURIComponent(text).replace(/_/g, ' ');
-                                                } catch (e) {
-                                                    return val;
-                                                }
-                                            };
-
-                                            return (
-                                                <div key={idx} style={{
-                                                    padding: '0.5rem',
-                                                    marginBottom: '0.5rem',
-                                                    background: '#f9fafb',
-                                                    borderRadius: '4px',
-                                                    fontFamily: 'monospace'
-                                                }}>
-                                                    <span style={{ color: '#0ea5e9', fontWeight: 600 }}>{formatValue(triple.subject)}</span>
-                                                    {' '}→{' '}
-                                                    <span style={{ color: '#8b5cf6' }}>{formatValue(triple.predicate)}</span>
-                                                    {' '}→{' '}
-                                                    <span style={{ color: '#0ea5e9', fontWeight: 600 }}>{formatValue(triple.object)}</span>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* SPARQL Query */}
-                            <div>
-                                <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>
-                                    SPARQL Query:
-                                </div>
-                                <pre style={{
-                                    background: 'white',
-                                    padding: '0.75rem',
-                                    borderRadius: '6px',
-                                    overflow: 'auto',
-                                    fontSize: '0.7rem',
-                                    lineHeight: '1.4',
-                                    margin: 0,
-                                    maxHeight: '200px'
-                                }}>
-                                    {currentChunks[0].graph_metadata.sparql_query}
-                                </pre>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Chunks List */}
-                    <div className="card">
-                        <h4 style={{ margin: 0, marginBottom: '1rem' }}>
-                            Retrieved Chunks ({currentChunks.length})
-                        </h4>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                            {currentChunks.map((chunk, idx) => (
-                                <div
-                                    key={idx}
-                                    style={{
-                                        padding: '1rem',
-                                        background: '#f9fafb',
-                                        borderRadius: '8px',
-                                        borderLeft: '3px solid var(--primary)'
-                                    }}
-                                >
-                                    <div style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        marginBottom: '0.5rem',
-                                        fontSize: '0.75rem',
-                                        color: 'var(--text-secondary)'
-                                    }}>
-                                        <span>Chunk {idx + 1}</span>
-                                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                            {chunk.metadata?.source === 'graph' && (
-                                                <span className="badge badge-primary" style={{ fontSize: '0.65rem' }}>
-                                                    Graph
-                                                </span>
-                                            )}
-                                            <span className="badge badge-primary" style={{ fontSize: '0.7rem' }}>
-                                                Score: {chunk.score?.toFixed(3) || 'N/A'}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div style={{
-                                        fontSize: '0.875rem',
-                                        lineHeight: '1.5',
-                                        color: 'var(--text-primary)',
-                                        maxHeight: '150px',
-                                        overflowY: 'auto'
-                                    }}>
-                                        {chunk.content}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </>
-            )}
         </div>
     );
 }

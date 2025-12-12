@@ -3,46 +3,96 @@ from app.core.milvus import create_collection
 from app.services.embedding import embedding_service
 from .base import RetrievalStrategy
 import numpy as np
+from openai import AsyncOpenAI
+from app.core.config import settings
 
 class KeywordRetrievalStrategy(RetrievalStrategy):
+    async def extract_keywords_with_llm(self, query: str) -> str:
+        """
+        Extract meaningful keywords (nouns, roots) from query using LLM, removing particles.
+        Returns a space-separated string of keywords.
+        """
+        prompt = f"""
+        Extract the core keywords from the following Korean query, removing particles (Josa) and functional words.
+        Return ONLY the keywords separated by spaces. Do not include any other text.
+        
+        Query: {query}
+        Keywords:
+        """
+        try:
+            client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+            response = await client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+                max_tokens=50
+            )
+            keywords = response.choices[0].message.content.strip()
+            print(f"[LLM Keyword Extraction] '{query}' -> '{keywords}'")
+            return keywords
+        except Exception as e:
+            print(f"LLM Keyword Extraction failed: {e}")
+            return query
+
     async def search(self, kb_id: str, query: str, top_k: int, **kwargs) -> List[Dict[str, Any]]:
         score_threshold = kwargs.get("score_threshold", 0.0)
+        use_llm_extraction = kwargs.get("use_llm_keyword_extraction", False)
         
+        with open("backend_debug.log", "a") as f:
+            f.write(f"Keyword Search Start. Query: {query}, TopK: {top_k}\n")
+        
+        # LLM Keyword Extraction
+        search_query = query
+        if use_llm_extraction:
+            search_query = await self.extract_keywords_with_llm(query)
+
         collection = create_collection(kb_id)
         collection.load()
         
-        # Embed query for cosine calculation (needed for unified scoring)
-        query_vectors = await embedding_service.get_embeddings([query])
-        query_vec = query_vectors[0]
-        
-        # Milvus scalar query (LIKE)
-        expr = f'content like "%{query}%"'
-        
+        from rank_bm25 import BM25Okapi
+
+        # Fetch candidate chunks from Milvus (fetch generic candidates)
+        # Note: In a real large-scale system, you'd use an Inverted Index (Elasticsearch/Solr)
         results = collection.query(
-            expr=expr,
-            output_fields=["content", "doc_id", "chunk_id", "vector"],
-            limit=top_k * 3
+            expr="id >= 0",
+            output_fields=["content", "doc_id", "chunk_id"],
+            limit=2000
         )
         
+        if not results:
+            return []
+
+        # Tokenize (Simple whitespace tokenizer)
+        # For Korean, this is not perfect (agglutinative), but better than exact substring.
+        tokenized_corpus = [hit.get("content", "").split() for hit in results]
+        
+        bm25 = BM25Okapi(tokenized_corpus)
+        
+        tokenized_query = search_query.split() # Use extracted keywords
+        doc_scores = bm25.get_scores(tokenized_query)
+        
+        # Combine results with scores
         retrieved = []
-        for hit in results:
-            chunk_vector = hit.get("vector")
-            cosine_score = 0.0
-            if chunk_vector:
-                cosine_score = self._cosine_similarity(query_vec, chunk_vector)
-            
-            if cosine_score < score_threshold:
+        for i, score in enumerate(doc_scores):
+            # BM25 scores are not 0-1. They are positive floats.
+            if score <= 0:
                 continue
-            
+                
+            hit = results[i]
             retrieved.append({
                 "chunk_id": hit.get("chunk_id"),
                 "content": hit.get("content"),
-                "score": cosine_score,
+                "score": float(score), # BM25 score
                 "metadata": {"doc_id": hit.get("doc_id")}
             })
         
         retrieved.sort(key=lambda x: x["score"], reverse=True)
-        return retrieved[:top_k]
+        final_res = retrieved[:top_k]
+        
+        with open("backend_debug.log", "a") as f:
+            f.write(f"Keyword Search End. Found: {len(final_res)}\n")
+            
+        return final_res
 
     def _cosine_similarity(self, vec1, vec2) -> float:
         v1 = np.array(vec1)

@@ -1,4 +1,5 @@
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
+from app.services.ingestion.spacy_processor import SpacyGraphProcessor
 from openai import AsyncOpenAI
 from app.core.config import settings
 import json
@@ -22,10 +23,20 @@ class GraphProcessor:
         clean = re.sub(r'[^a-zA-Z0-9_\uAC00-\uD7A3\u0400-\u04FF]+', '_', text.strip())
         return urllib.parse.quote(clean)
 
-    async def extract_graph_elements(self, text: str, chunk_id: str) -> List[str]:
+    async def extract_graph_elements(self, text: str, chunk_id: str, kb_id: str, config: Dict[str, Any] = {}) -> List[str]:
         """
         Extracts entities and relations from text and returns RDF triples (N-Triples).
         """
+        # Check config for method
+        graph_settings = config.get("graph_settings", {})
+        method = graph_settings.get("method", "llm") # Default to LLM
+        
+        if method == "spacy":
+            processor = SpacyGraphProcessor(kb_id)
+            # Pass merged config or graph_settings? Pass graph_settings
+            return await processor.extract_graph_elements(text, chunk_id, graph_settings)
+
+        # Fallback to LLM (Original Logic)
         prompt = f"""
         Analyze the following text and extract key entities and their relationships.
         Return a JSON object with a list of "triples".

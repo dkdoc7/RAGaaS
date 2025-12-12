@@ -22,8 +22,12 @@ class ChatRequest(BaseModel):
     use_llm_reranker: bool = False
     llm_chunk_strategy: str = "full"
     use_ner: bool = False
+    use_llm_keyword_extraction: bool = False
     enable_graph_search: bool = False
     graph_hops: int = 1
+    use_brute_force: bool = False
+    brute_force_top_k: int = 1
+    brute_force_threshold: float = 1.5
 
 class ChatResponse(BaseModel):
     answer: str
@@ -35,10 +39,14 @@ async def retrieve_chunks(
     request: RetrievalRequest,
     db: AsyncSession = Depends(get_db)
 ):
+    print(f"[DEBUG] Retrieve Request: brute={request.use_brute_force} bf_top_k={request.brute_force_top_k} bf_thresh={request.brute_force_threshold}")
     # Fetch KB to get metric_type
     from app.models.knowledge_base import KnowledgeBase
     result = await db.execute(select(KnowledgeBase).filter(KnowledgeBase.id == kb_id))
     kb = result.scalars().first()
+    
+    with open("backend_debug.log", "a") as f:
+        f.write(f"\n--- REQ ---\nDefault TopK: {request.top_k}\nBF: {request.use_brute_force}\n")
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge Base not found")
         
@@ -53,7 +61,8 @@ async def retrieve_chunks(
         metric_type=metric_type, 
         score_threshold=request.score_threshold,
         enable_graph_search=request.enable_graph_search,
-        graph_hops=request.graph_hops
+        graph_hops=request.graph_hops,
+        use_llm_keyword_extraction=request.use_llm_keyword_extraction
     )
     
     # 2. Reranking (Cross-Encoder)
@@ -84,6 +93,52 @@ async def retrieve_chunks(
         print(f"[DEBUG] Applying NER filter")
         results = ner_service.filter_by_entities(request.query, results, penalty=0.3)
         
+    # 3.5. Flat Index (L2) Re-ranking (Exact L2 Distance on Candidates)
+    if request.use_brute_force and results:
+        from app.services.embedding import embedding_service
+        import numpy as np
+        
+        print(f"[DEBUG] Applying Flat Index L2 Re-ranking (Top K: {request.brute_force_top_k}, Threshold (Max Dist): {request.brute_force_threshold})")
+        
+        # 1. Embed query
+        query_embedding = (await embedding_service.get_embeddings([request.query]))[0]
+        
+        # 2. Embed content of candidates
+        candidate_contents = [r['content'] for r in results]
+        candidate_embeddings = await embedding_service.get_embeddings(candidate_contents)
+        
+        # 3. Compute L2 Distance
+        reranked = []
+        for i, doc_embedding in enumerate(candidate_embeddings):
+            # L2 Metric
+            vec1 = np.array(query_embedding)
+            vec2 = np.array(doc_embedding)
+            dist = float(np.linalg.norm(vec1 - vec2))
+            
+            # Apply threshold (LOWER is better for L2)
+            if dist <= request.brute_force_threshold:
+                # Update score to Similarity Score (Higher is better)
+                try:
+                    sim_score = 1.0 / (1.0 + dist)
+                except:
+                    sim_score = 0.0
+                
+                # Safety check for NaN
+                if np.isnan(sim_score) or np.isinf(sim_score):
+                    sim_score = 0.0
+                if np.isnan(dist) or np.isinf(dist):
+                    pass # Allow NaN dist if score is handled
+                
+                chunk = results[i].copy()
+                chunk['score'] = float(sim_score)
+                chunk['l2_score'] = float(dist) if not np.isnan(dist) else None
+                reranked.append(chunk)
+        
+        # 4. Sort and Top K (DESCENDING for Similarity)
+        reranked.sort(key=lambda x: x['score'], reverse=True)
+        results = reranked[:request.brute_force_top_k]
+        results = reranked[:request.brute_force_top_k]
+        
     return results
 
 @router.post("/{kb_id}/chat", response_model=ChatResponse)
@@ -92,6 +147,7 @@ async def chat_with_kb(
     request: ChatRequest,
     db: AsyncSession = Depends(get_db)
 ):
+    print(f"[DEBUG] Chat Request: brute={request.use_brute_force} bf_top_k={request.brute_force_top_k} bf_thresh={request.brute_force_threshold}")
     """
     Chat endpoint that retrieves relevant chunks and generates an LLM response
     """
@@ -113,9 +169,13 @@ async def chat_with_kb(
         metric_type=metric_type, 
         score_threshold=request.score_threshold,
         enable_graph_search=request.enable_graph_search,
-        graph_hops=request.graph_hops
+        graph_hops=request.graph_hops,
+        use_llm_keyword_extraction=request.use_llm_keyword_extraction
     )
     
+    with open("backend_debug.log", "a") as f:
+        f.write(f"Strategy: {request.strategy}, Initial Results: {len(results) if results else 0}\n")
+
     # 2. Reranking
     if request.use_reranker and request.strategy != "2-stage" and results:
         if request.use_llm_reranker:
@@ -134,10 +194,73 @@ async def chat_with_kb(
                 threshold=request.reranker_threshold
             )
 
-    # 3. NER Filtering
     if request.use_ner and results:
         from app.services.ner import ner_service
         results = ner_service.filter_by_entities(request.query, results, penalty=0.3)
+        
+    # 3.5. Flat Index (L2) Re-ranking (Exact L2 Distance on Candidates)
+    if request.use_brute_force and results:
+        with open("backend_debug.log", "a") as f:
+            f.write(f"Entering BF Block. Results: {len(results)}\n")
+            
+        from app.services.embedding import embedding_service
+        import numpy as np
+        
+        print(f"[DEBUG] Applying Flat Index L2 Re-ranking (Top K: {request.brute_force_top_k}, Threshold (Max Dist): {request.brute_force_threshold})")
+        
+        # 1. Embed query
+        query_embedding = (await embedding_service.get_embeddings([request.query]))[0]
+        
+        # 2. Embed content of candidates
+        candidate_contents = [r['content'] for r in results]
+        candidate_embeddings = await embedding_service.get_embeddings(candidate_contents)
+        
+        # 3. Compute L2 Distance
+        reranked = []
+        debug_dists = []
+        for i, doc_embedding in enumerate(candidate_embeddings):
+            # L2 Metric
+            vec1 = np.array(query_embedding)
+            vec2 = np.array(doc_embedding)
+            dist = float(np.linalg.norm(vec1 - vec2))
+            debug_dists.append(dist)
+            
+            print(f"[DEBUG] L2: {dist:.4f} vs Threshold: {request.brute_force_threshold:.4f} -> {'KEEP' if dist <= request.brute_force_threshold else 'DROP'}")
+            
+            # Apply threshold (LOWER is better for L2)
+            if dist <= request.brute_force_threshold:
+                # Update score to Similarity Score (Higher is better)
+                # Convert L2 distance to a 0-1 similarity score for consistent sorting/display
+                try:
+                    sim_score = 1.0 / (1.0 + dist)
+                except:
+                    sim_score = 0.0
+                
+                # Safety check for NaN
+                if np.isnan(sim_score) or np.isinf(sim_score):
+                    sim_score = 0.0
+                if np.isnan(dist) or np.isinf(dist):
+                    pass # Keep dist as is for debug or set to -1? Pydantic allows Inf for float, but NaN -> Null.
+                         # But dist is sent as l2_score. 
+                         # If dist is NaN/Inf, let's allow it but ensure score is valid.
+                
+                chunk = results[i].copy()
+                chunk['score'] = float(sim_score)
+                chunk['l2_score'] = float(dist) if not np.isnan(dist) else None
+                reranked.append(chunk)
+        
+        # 4. Sort and Top K (DESCENDING for Similarity)
+        reranked.sort(key=lambda x: x['score'], reverse=True)
+        results = reranked[:request.brute_force_top_k]
+        
+        if not results and candidate_contents:
+             debug_msg = f"BF Filtered All! Threshold: {request.brute_force_threshold}. Dists: {debug_dists}"
+             with open("backend_debug.log", "a") as f:
+                 f.write(f"BF Cut All: {debug_dists}\n")
+             raise HTTPException(status_code=418, detail=debug_msg)
+             
+        with open("backend_debug.log", "a") as f:
+            f.write(f"BF Final Results: {len(results)}\n")
     
     # 4. Generate LLM response based on retrieved chunks
     if not results:

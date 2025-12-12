@@ -33,6 +33,15 @@ Milvus 기반의 다수의 RAG (Retrieval-Augmented Generation) 지식 베이스
 - **2-Stage Retrieval**: ANN 후보 검색 + Cross-Encoder 정밀 재평가
 - **Hybrid (ANN + BM25)**: 벡터 검색과 키워드 검색을 결합한 최고 정확도 검색
 
+### 고급 검색 기능
+- **선택적 리랭커**: Cross-Encoder 기반 의미적 관련성 재평가
+- **NER 필터**: 엔티티 매칭 기반 점수 조정으로 정확도 향상
+- **Flat Index (L2)**: 정밀 L2 거리 계산을 통한 최고 정확도 검색
+  - 후보군에 대해 정확한 유클리드 거리 계산
+  - L2 거리 임계값 필터링 (0.0-2.0)
+  - Score와 L2 거리를 모두 표시하여 투명성 제공
+- **Graph RAG**: 지식 그래프 기반 관계 탐색 검색
+
 ### 데이터 관리
 - **Cascading Delete**: 지식 베이스 삭제 시 관련 문서 및 벡터 자동 삭제
 - **실시간 상태 추적**: WebSocket을 통한 문서 처리 상태 업데이트

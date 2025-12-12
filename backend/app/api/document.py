@@ -17,6 +17,7 @@ async def upload_document(
     kb_id: str,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    chunking_config: str = Form(None),
     db: AsyncSession = Depends(get_db)
 ):
     # Fetch Knowledge Base to get chunking config
@@ -24,6 +25,14 @@ async def upload_document(
     kb = result.scalars().first()
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge Base not found")
+
+    # Check for duplicate filename
+    result = await db.execute(
+        select(DocModel).filter(DocModel.kb_id == kb_id, DocModel.filename == file.filename)
+    )
+    existing_doc = result.scalars().first()
+    if existing_doc:
+        raise HTTPException(status_code=409, detail=f"Document '{file.filename}' already exists in this Knowledge Base.")
 
     # Create Document record
     doc = DocModel(
@@ -39,6 +48,16 @@ async def upload_document(
     # Read file content
     content = await file.read()
     
+    # Merge chunking config
+    final_config = kb.chunking_config.copy() if kb.chunking_config else {}
+    if chunking_config:
+        try:
+            import json
+            override = json.loads(chunking_config)
+            final_config.update(override)
+        except Exception as e:
+            logger.error(f"Failed to parse chunking_config override: {e}")
+
     # Start background task
     background_tasks.add_task(
         ingestion_service.process_document,
@@ -47,7 +66,7 @@ async def upload_document(
         doc.filename,
         content,
         kb.chunking_strategy,
-        kb.chunking_config
+        final_config
     )
     
     return doc
@@ -67,8 +86,18 @@ async def delete_document(kb_id: str, doc_id: str, db: AsyncSession = Depends(ge
     await db.delete(doc)
     await db.commit()
     
-    # TODO: Delete from Milvus as well (requires deleting by expression)
-    
+    # Delete from Milvus
+    try:
+        from app.core.milvus import create_collection
+        collection = create_collection(kb_id)
+        collection.load()
+        expr = f'doc_id == "{doc_id}"'
+        collection.delete(expr)
+        collection.flush()
+        print(f"Deleted chunks for doc {doc_id} from Milvus")
+    except Exception as e:
+        print(f"Failed to delete chunks from Milvus for doc {doc_id}: {e}")
+
     return {"ok": True}
 
 @router.get("/{kb_id}/documents/{doc_id}/chunks")
@@ -216,7 +245,8 @@ async def update_chunk(
                 logger.info(f"Deleted old graph triples for chunk {chunk_id}")
                 
                 # Extract new entities and relationships
-                new_triples = await graph_processor.extract_graph_elements(content, chunk_id)
+                config = kb.chunking_config if kb.chunking_config else {}
+                new_triples = await graph_processor.extract_graph_elements(content, chunk_id, kb_id, config)
                 
                 if new_triples:
                     # Insert new triples
