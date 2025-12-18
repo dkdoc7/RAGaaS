@@ -1,9 +1,12 @@
 import io
 from pypdf import PdfReader
-from app.services.chunking import chunking_service
+from .text_splitter import chunking_service
 from app.services.embedding import embedding_service
 from app.core.milvus import create_collection
 from app.models.document import Document, DocumentStatus
+from app.models.knowledge_base import KnowledgeBase
+from app.core.fuseki import fuseki_client
+from app.services.ingestion.graph import graph_processor
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List
@@ -113,6 +116,36 @@ class IngestionService:
             
             collection.insert(data)
             collection.flush() # Ensure data is visible
+
+            # 4.5. Graph Ingestion (if enabled)
+            # We check KB settings inside a separate DB session or re-use if possible, 
+            # but here we need to be careful with async/sync calls.
+            # Ideally we passed kb config, but we only passed kb_id.
+            
+            async with SessionLocal() as db:
+                result = await db.execute(select(KnowledgeBase).filter(KnowledgeBase.id == kb_id))
+                kb = result.scalars().first()
+                
+                if kb and kb.enable_graph_rag:
+                    print(f"Graph RAG enabled for KB {kb_id}. Processing {len(texts_to_embed)} chunks...")
+                    
+                    # Ensure dataset exists
+                    try:
+                        fuseki_client.create_dataset(kb_id)
+                    except Exception as e:
+                        print(f"Warning: Could not create/verify dataset: {e}")
+
+                    chunk_ids = [f"{doc_id}_{i}" for i in range(len(texts_to_embed))]
+                    
+                    for i, text in enumerate(texts_to_embed):
+                        chunk_id = chunk_ids[i]
+                        try:
+                            triples = await graph_processor.extract_graph_elements(text, chunk_id, kb_id, config)
+                            if triples:
+                                fuseki_client.insert_triples(kb_id, triples)
+                        except Exception as e:
+                            print(f"Error processing graph for chunk {chunk_id}: {e}")
+                            # Continue with other chunks even if one fails
             
             # 5. Update Status to COMPLETED
             async with SessionLocal() as db:

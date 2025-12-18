@@ -34,8 +34,10 @@ class ConnectionManager:
     async def broadcast(self, kb_id: str, message: dict):
         """Send a message to all connected clients for a specific knowledge base"""
         if kb_id not in self.active_connections:
-            logger.debug(f"No active connections for kb_id: {kb_id}")
+            logger.warning(f"BROADCAST FAIL: No active connections for kb_id: {kb_id}. Active KBs: {list(self.active_connections.keys())}")
             return
+        
+        logger.info(f"BROADCAST START: Sending message to {len(self.active_connections[kb_id])} clients for kb_id {kb_id}")
         
         # Convert message to JSON
         json_message = json.dumps(message)

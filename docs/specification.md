@@ -4,6 +4,8 @@
 본 문서는 Milvus를 기반으로 하는 RAG (Retrieval-Augmented Generation) 관리 시스템의 사양을 정의합니다. 이 시스템은 사용자가 다수의 지식 베이스(Knowledge Base)를 생성 및 관리하고, 문서를 업로드하며, 검색 전략을 구성할 수 있도록 지원합니다. 디자인과 기능은 Dify의 Knowledge 기능을 참고하여 설계되었습니다.
 
 ## 2. 기술 스택
+
+### 2.1 코어 기술
 -   **프론트엔드**: React (Vite)
 -   **백엔드**: FastAPI (Python)
 -   **벡터 데이터베이스**: Milvus
@@ -11,6 +13,20 @@
 -   **임베딩 모델**: OpenAI `text-embedding-3-small`
 -   **리랭킹 모델**: Cross-Encoder `cross-encoder/ms-marco-MiniLM-L-6-v2`
 -   **키워드 검색**: BM25 (rank-bm25)
+
+### 2.2 Graph RAG 기술 스택
+-   **그래프 데이터베이스**: Apache Jena Fuseki (TDB2 스토어)
+-   **쿼리 언어**: SPARQL 1.1
+-   **그래프 포맷**: RDF (N-Triples)
+-   **엔티티 추출**: 
+    -   OpenAI GPT-4o-mini (LLM 기반 관계 추출)
+    -   spaCy NER (한국어 모델: `ko_core_news_sm`)
+    -   이중 추출로 정확도 향상
+-   **Python 라이브러리**: SPARQLWrapper, spaCy
+-   **네임스페이스**:
+    -   엔티티: `http://rag.local/entity/`
+    -   관계: `http://rag.local/relation/`
+    -   소스: `http://rag.local/source/`
 
 ## 3. 핵심 기능
 
@@ -84,11 +100,105 @@
 - 추출 엔티티: ["오영수"]
 - 효과: "오영수"가 없는 청크 점수 대폭 하락 → "오영수"가 있는 청크만 상위 랭크
 
-### 3.6 검색 테스트 (Retrieval Testing)
+### 3.6 Flat Index (L2) 정밀 검색
+
+**Flat Index (L2)** 는 초기 검색 결과(후보군)에 대해 **정확한 L2 거리 계산**을 수행하여 벡터 근접도를 정밀하게 측정하는 재순위화(Re-ranking) 방식입니다.
+
+**동작 방식**:
+1. **초기 검색**: 선택한 전략(ANN, Keyword, Hybrid 등)으로 후보 청크 검색
+2. **L2 거리 계산**: 각 후보 청크와 질의 벡터 사이의 유클리드 거리(L2) 정밀 계산
+3. **필터링**: L2 거리가 Threshold 이하인 청크만 선택 (낮을수록 유사)
+4. **점수 변환**: L2 거리를 유사도 점수로 변환: `score = 1 / (1 + distance)`
+5. **정렬 및 선택**: 변환된 점수 기준 내림차순 정렬 후 상위 Top-K개 반환
+
+**파라미터**:
+- `use_brute_force`: Flat Index 사용 여부 (boolean, 기본값: false)
+- `brute_force_top_k`: 최종 반환 결과 수 (1-20, 기본값: 1)
+- `brute_force_threshold`: 최대 L2 거리 임계값 (0.0-2.0, 기본값: 1.5)
+  - 낮을수록 엄격 (예: 0.5 = 매우 유사한 것만 허용)
+  - 높을수록 관대 (예: 2.0 = 넓은 범위 허용)
+
+**UI 표시**:
+- 검색 결과에 **Score**와 **L2 거리**를 모두 표시
+- 예: `Score: 0.4449 (L2: 1.2475)`
+- Score는 높을수록 유사, L2는 낮을수록 유사
+
+**사용 사례**:
+- 매우 정확한 벡터 매칭이 필요한 경우
+- 초기 검색이 넓게 잡은 후보군 중 가장 정밀한 상위 1개만 선택하고 싶을 때
+- L2 거리 임계값으로 명확한 유사도 기준을 적용하고 싶을 때
+
+**참고**:
+- Graph Search와 상호 배타적 (동시 사용 불가)
+- 연산 비용이 높으므로 초기 후보 수를 적절히 제한하는 것이 좋음
+
+### 3.8 Graph RAG (지식 그래프 기반 검색)
+
+**Graph RAG**는 문서로부터 자동으로 엔티티와 관계를 추출하여 RDF 그래프를 구축하고, SPARQL 쿼리로 관련 엔티티를 탐색하는 고급 검색 기능입니다.
+
+**동작 방식**:
+
+1. **그래프 구축 (인덱싱 단계)**:
+   - 문서 업로드 시 각 청크에서 엔티티와 관계 추출
+   - 이중 추출 방식:
+     - **LLM 기반** (GPT-4o-mini): 텍스트에서 Subject-Predicate-Object 트리플 추출
+     - **spaCy NER**: 한국어 개체명 인식 및 황조사 제거
+   - RDF N-Triples 형식으로 벀환:
+     ```
+     <http://rag.local/entity/Elon_Musk> <http://rag.local/relation/is_CEO_of> <http://rag.local/entity/SpaceX> .
+     <http://rag.local/entity/Elon_Musk> <http://rag.local/relation/hasSource> <http://rag.local/source/chunk_123> .
+     ```
+   - Apache Jena Fuseki에 트리플 저장
+
+2. **검색 단계**:
+   - **의미 기반 쿼리 분석** (LLM 활용):
+     - Multi-hop 관계 쿼리 자동 감지 (예: "A의 B의 C")
+     - 관계 타입 추출 (master, student, 스승, 제자 등)
+   - 사용자 쿼리에서 엔티티 추출 (LLM + spaCy)
+   - **엔티티 자동 확장**: 추출된 엔티티와 연결된 관련 엔티티 탐색
+   - SPARQL 쿼리로 그래프 탐색 (1-5 hops, 기본값 2)
+   - **스코어 부스팅**: 그래프 발견 청크에 1.5x 가중치 적용
+   - **Hybrid 통합 및 Fallback**: 그래프 + BM25/Vector 병합
+
+3. **메타데이터 표시**:
+   - 추출/확장된 엔티티, SPARQL 쿼리, 트리플, 쿼리 분석
+
+**파라미터**:
+- `enable_graph_rag`: KB 생성 시 활성화 (boolean, 기본: false)
+- `enable_graph_search`: 검색 시 사용 (boolean, 기본: false)
+- `graph_hops`: 탐색 깊이 (1-5, 기본: 2)
+
+**기술 사양**:
+- **그래프 DB**: Apache Jena Fuseki 4.x
+- **저장 백엔드**: TDB2 (Native RDF Store)
+- **데이터셋**: 각 KB마다 별도 데이터셋 (`kb_{kb_id}`)
+- **네임스페이스**:
+  - `http://rag.local/entity/`: 엔티티
+  - `http://rag.local/relation/`: 관계/속성
+  - `http://rag.local/source/`: 소스 청크
+- **타입 속성**: `rdfs:label` (엔티티 레이블), `rel:hasSource` (출처 링크)
+
+**사용 사례**:
+- 질문: "일론 머스크가 CEO인 회사는?"
+- 추출 엔티티: ["일론 머스크", "CEO"]
+- SPARQL으로 "일론 머스크" -> "is_CEO_of" -> "SpaceX" 관계 발견
+- 해당 트리플의 소스 청크 반환
+
+**장점**:
+- 단순 키워드 매칭을 넘어 관계 기반 검색 가능
+- 메타데이터로 검색 과정 투명성 제공
+- SPARQL의 강력한 패턴 매칭 활용
+
+**제한사항**:
+- Beta 기능으로 성능 최적화 진행 중
+- 대량 문서에서는 그래프 구축 시간 소요
+- Flat Index (L2)와 동시 사용 불가
+
+### 3.9 검색 테스트 (Retrieval Testing)
 -   **플레이그라운드**: 특정 지식 베이스에 대해 검색 쿼리를 테스트할 수 있는 UI.
 -   **디버그 정보**: 검색된 청크, 유사도 점수, 메타데이터 표시.
 
-### 3.7 API 통합
+### 3.8 API 통합
 -   **외부 API**: 외부 애플리케이션에서 지식 베이스를 조회할 수 있는 엔드포인트 제공.
 
 ## 4. API 설계 (FastAPI)
@@ -107,8 +217,31 @@
 
 ### 검색 (Retrieval)
 -   `POST /api/knowledge-bases/{kb_id}/retrieve`: 관련 청크 검색.
-    -   Body: `{ "query": "...", "top_k": 5, "score_threshold": 0.5, "strategy": "ann" | "keyword" | "2-stage" | "hybrid" }`
-    -   Response: `[{ "chunk_id": "...", "content": "...", "score": 0.87, "metadata": {...} }]`
+    -   Body: 
+        ```json
+        { 
+          "query": "...", 
+          "top_k": 5, 
+          "score_threshold": 0.5, 
+          "strategy": "ann" | "keyword" | "2-stage" | "hybrid",
+          "enable_graph_search": false,
+          "graph_hops": 1
+        }
+        ```
+    -   Response: 
+        ```json
+        [{ 
+          "chunk_id": "...", 
+          "content": "...", 
+          "score": 0.87, 
+          "metadata": {...},
+          "graph_metadata": {
+            "sparql_query": "...",
+            "extracted_entities": [...],
+            "triples": [...]
+          }
+        }]
+        ```
 
 ## 5. 데이터베이스 스키마
 
@@ -117,6 +250,7 @@
 -   `id`: UUID (Primary Key)
 -   `name`: String
 -   `description`: String
+-   `enable_graph_rag`: Boolean (Graph RAG 활성화 여부, 기본값: false)
 -   `created_at`: Timestamp
 -   `updated_at`: Timestamp
 
@@ -135,6 +269,34 @@
 -   `chunk_id`: String (Metadata)
 -   `content`: String (실제 텍스트 청크)
 -   `vector`: FloatVector (임베딩)
+
+### 5.3 Apache Jena Fuseki (Graph Data)
+**데이터셋: kb_{kb_id}** (각 Knowledge Base마다 별도 데이터셋)
+
+**RDF 트리플 구조**:
+1. **엔티티 정의**:
+   ```turtle
+   <http://rag.local/entity/Elon_Musk> rdf:type <http://rag.local/type/PERSON> .
+   <http://rag.local/entity/Elon_Musk> rdfs:label "Elon Musk" .
+   ```
+
+2. **관계 트리플**:
+   ```turtle
+   <http://rag.local/entity/Elon_Musk> <http://rag.local/relation/is_CEO_of> <http://rag.local/entity/SpaceX> .
+   ```
+
+3. **소스 링크 (Provenance)**:
+   ```turtle
+   <http://rag.local/entity/Elon_Musk> <http://rag.local/relation/hasSource> <http://rag.local/source/chunk_abc123> .
+   ```
+
+**주요 네임스페이스**:
+-   **엔티티**: `http://rag.local/entity/` - 추출된 엔티티 (인명, 조직, 개념 등)
+-   **관계**: `http://rag.local/relation/` - 엔티티 간 관계 및 속성
+-   **소스**: `http://rag.local/source/` - 청크 ID로 출처 추적
+-   **타입**: `http://rag.local/type/` - 엔티티 타입 (PERSON, ORG, GPE 등)
+
+**SPARQL 엔드포인트**: `http://fuseki:3030/kb_{kb_id}/query`
 
 ## 6. UI/UX (React)
 

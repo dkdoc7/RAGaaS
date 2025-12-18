@@ -58,3 +58,9 @@ volumes/
 # Logs
 *.log
 logs/
+
+# Ubuntu deploy packages (large binary files)
+ubuntu_deploy/packages/
+ubuntu_deploy/backend/
+ubuntu_deploy/frontend/
+

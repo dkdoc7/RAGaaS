@@ -1,0 +1,29 @@
+from pydantic import BaseModel
+from datetime import datetime
+from typing import Optional, List
+from .common import PaginationParams
+
+class KnowledgeBaseBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    chunking_strategy: str = "size"
+    chunking_config: dict = {}
+    metric_type: str = "COSINE"  # COSINE or IP
+    enable_graph_rag: bool = False
+
+class KnowledgeBaseCreate(KnowledgeBaseBase):
+    pass
+
+class KnowledgeBase(KnowledgeBaseBase):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+    document_count: Optional[int] = 0
+    total_size: Optional[int] = 0
+
+    class Config:
+        from_attributes = True
+
+class KnowledgeBaseUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None

@@ -54,6 +54,18 @@ services:
       - "etcd"
       - "minio"
 
+  fuseki:
+    container_name: ragaas-fuseki
+    image: stain/jena-fuseki:latest
+    environment:
+      - ADMIN_PASSWORD=admin
+      - JVM_ARGS=-Xmx2g
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/fuseki:/fuseki
+    ports:
+      - "3030:3030"
+    restart: unless-stopped
+
   backend:
     container_name: ragaas-backend
     build:
@@ -63,6 +75,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - MILVUS_HOST=standalone
       - MILVUS_PORT=19530
+      - FUSEKI_URL=http://fuseki:3030
       - DATABASE_URL=sqlite:////app/data/rag_system.db
     volumes:
       - ./backend/data:/app/data
@@ -70,6 +83,7 @@ services:
       - "8000:8000"
     depends_on:
       - standalone
+      - fuseki
     restart: unless-stopped
 
   frontend:

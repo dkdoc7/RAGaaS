@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
+from dataclasses import asdict
+from app.services.ingestion.entity_store import EntityStore, EntityInfo
 from pymilvus import Collection
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -10,6 +12,8 @@ from app.core.milvus import create_collection, utility, connect_milvus
 from app.models.document import Document as DocModel
 from sqlalchemy import delete
 
+from app.core.fuseki import fuseki_client
+
 router = APIRouter()
 
 @router.post("/", response_model=KnowledgeBase)
@@ -19,7 +23,8 @@ async def create_knowledge_base(kb: KnowledgeBaseCreate, db: AsyncSession = Depe
         description=kb.description,
         chunking_strategy=kb.chunking_strategy,
         chunking_config=kb.chunking_config,
-        metric_type=kb.metric_type
+        metric_type='COSINE',  # Always use COSINE
+        enable_graph_rag=kb.enable_graph_rag
     )
     db.add(db_kb)
     await db.commit()
@@ -29,9 +34,14 @@ async def create_knowledge_base(kb: KnowledgeBaseCreate, db: AsyncSession = Depe
     try:
         create_collection(db_kb.id, metric_type=db_kb.metric_type)
     except Exception as e:
-        # Rollback if Milvus fails? Or just log error?
-        # For now, let's assume it works or we handle it later
         print(f"Failed to create Milvus collection: {e}")
+
+    # Create Fuseki dataset if Graph RAG is enabled
+    if db_kb.enable_graph_rag:
+        try:
+            fuseki_client.create_dataset(db_kb.id)
+        except Exception as e:
+            print(f"Failed to create Fuseki dataset: {e}")
         
     return db_kb
 
@@ -79,6 +89,7 @@ async def list_knowledge_bases(skip: int = 0, limit: int = 100, db: AsyncSession
             "chunking_strategy": kb.chunking_strategy,
             "chunking_config": kb.chunking_config,
             "metric_type": kb.metric_type,
+            "enable_graph_rag": kb.enable_graph_rag,
             "document_count": row[1],
             "total_size": collection_size
         }
@@ -111,15 +122,57 @@ async def delete_knowledge_base(kb_id: str, db: AsyncSession = Depends(get_db)):
     try:
         connect_milvus()
         collection_name = f"kb_{kb_id.replace('-', '_')}"
-        # Try to drop directly without checking existence to avoid race conditions/flakiness
         try:
-            col = Collection(collection_name)
-            col.drop()
+            if utility.has_collection(collection_name):
+                col = Collection(collection_name)
+                col.drop()
         except Exception:
-            # Fallback or ignore if already gone
             pass
             
     except Exception as e:
         print(f"Error during Milvus cleanup: {e}")
+
+    # Delete Fuseki dataset
+    try:
+        fuseki_client.delete_dataset(kb_id)
+    except Exception as e:
+        print(f"Error deleting Fuseki dataset: {e}")
         
     return {"ok": True}
+
+@router.get("/{kb_id}/entities")
+async def list_entities(kb_id: str, db: AsyncSession = Depends(get_db)):
+    # Verify KB exists
+    result = await db.execute(select(KBModel).filter(KBModel.id == kb_id))
+    if not result.scalars().first():
+        raise HTTPException(status_code=404, detail="Knowledge Base not found")
+        
+    store = EntityStore(kb_id)
+    # Return as list
+    return [asdict(e) for e in store.entities.values()]
+
+@router.put("/{kb_id}/entities")
+async def update_entities(kb_id: str, entities: List[dict] = Body(...), db: AsyncSession = Depends(get_db)):
+    # Verify KB exists
+    result = await db.execute(select(KBModel).filter(KBModel.id == kb_id))
+    if not result.scalars().first():
+        raise HTTPException(status_code=404, detail="Knowledge Base not found")
+        
+    store = EntityStore(kb_id)
+    
+    new_entities = {}
+    for e in entities:
+        if 'name' not in e: continue
+        name = e['name']
+        new_entities[name] = EntityInfo(
+            name=name,
+            label=e.get('label', 'UNKNOWN'),
+            count=e.get('count', 1),
+            aliases=e.get('aliases', []),
+            is_promoted=e.get('is_promoted', False)
+        )
+    
+    store.entities = new_entities
+    store.save()
+    
+    return {"ok": True, "count": len(store.entities)}

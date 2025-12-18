@@ -7,7 +7,9 @@ from app.models.document import Document as DocModel, DocumentStatus
 from app.models.knowledge_base import KnowledgeBase as KBModel
 from app.schemas import Document
 from app.services.ingestion import ingestion_service
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.post("/{kb_id}/documents", response_model=Document)
@@ -15,6 +17,7 @@ async def upload_document(
     kb_id: str,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    chunking_config: str = Form(None),
     db: AsyncSession = Depends(get_db)
 ):
     # Fetch Knowledge Base to get chunking config
@@ -22,6 +25,14 @@ async def upload_document(
     kb = result.scalars().first()
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge Base not found")
+
+    # Check for duplicate filename
+    result = await db.execute(
+        select(DocModel).filter(DocModel.kb_id == kb_id, DocModel.filename == file.filename)
+    )
+    existing_doc = result.scalars().first()
+    if existing_doc:
+        raise HTTPException(status_code=409, detail=f"Document '{file.filename}' already exists in this Knowledge Base.")
 
     # Create Document record
     doc = DocModel(
@@ -37,6 +48,16 @@ async def upload_document(
     # Read file content
     content = await file.read()
     
+    # Merge chunking config
+    final_config = kb.chunking_config.copy() if kb.chunking_config else {}
+    if chunking_config:
+        try:
+            import json
+            override = json.loads(chunking_config)
+            final_config.update(override)
+        except Exception as e:
+            logger.error(f"Failed to parse chunking_config override: {e}")
+
     # Start background task
     background_tasks.add_task(
         ingestion_service.process_document,
@@ -45,7 +66,7 @@ async def upload_document(
         doc.filename,
         content,
         kb.chunking_strategy,
-        kb.chunking_config
+        final_config
     )
     
     return doc
@@ -65,8 +86,18 @@ async def delete_document(kb_id: str, doc_id: str, db: AsyncSession = Depends(ge
     await db.delete(doc)
     await db.commit()
     
-    # TODO: Delete from Milvus as well (requires deleting by expression)
-    
+    # Delete from Milvus
+    try:
+        from app.core.milvus import create_collection
+        collection = create_collection(kb_id)
+        collection.load()
+        expr = f'doc_id == "{doc_id}"'
+        collection.delete(expr)
+        collection.flush()
+        print(f"Deleted chunks for doc {doc_id} from Milvus")
+    except Exception as e:
+        print(f"Failed to delete chunks from Milvus for doc {doc_id}: {e}")
+
     return {"ok": True}
 
 @router.get("/{kb_id}/documents/{doc_id}/chunks")
@@ -109,3 +140,143 @@ async def get_document_chunks(kb_id: str, doc_id: str, db: AsyncSession = Depend
         },
         "chunks": results
     }
+
+@router.put("/{kb_id}/documents/{doc_id}/chunks/{chunk_id}")
+async def update_chunk(
+    kb_id: str,
+    doc_id: str,
+    chunk_id: str,
+    content: str = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update chunk content and re-generate embedding"""
+    try:
+        from app.core.milvus import create_collection
+        from app.services.embedding import embedding_service
+        from datetime import datetime
+        
+        # Verify document exists
+        result = await db.execute(select(DocModel).filter(DocModel.id == doc_id, DocModel.kb_id == kb_id))
+        doc = result.scalars().first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        # Get collection
+        collection = create_collection(kb_id)
+        collection.load()
+        
+        # Verify chunk exists
+        expr = f'chunk_id == "{chunk_id}"'
+        try:
+            existing_chunks = collection.query(
+                expr=expr,
+                output_fields=["chunk_id", "content", "doc_id", "metadata"],
+                limit=1
+            )
+        except Exception as e:
+            # Fallback for collections without metadata field
+            print(f"Error querying with metadata: {e}")
+            existing_chunks = collection.query(
+                expr=expr,
+                output_fields=["chunk_id", "content", "doc_id"],
+                limit=1
+            )
+        
+        if not existing_chunks:
+            raise HTTPException(status_code=404, detail="Chunk not found")
+        
+        # Get existing metadata if any
+        existing_metadata = existing_chunks[0].get('metadata', {}) if len(existing_chunks) > 0 else {}
+        
+        # Generate new embedding
+        embeddings = await embedding_service.get_embeddings([content])
+        new_embedding = embeddings[0]
+        
+        # Delete old chunk
+        collection.delete(expr)
+        collection.flush()
+        
+        # Insert updated chunk using entity format
+        entities = [{
+            "doc_id": doc_id,
+            "chunk_id": chunk_id,
+            "content": content,
+            "metadata": existing_metadata,
+            "vector": new_embedding
+        }]
+        
+        collection.insert(entities)
+        collection.flush()
+        
+        # Update Graph RAG if enabled
+        kb_result = await db.execute(select(KBModel).filter(KBModel.id == kb_id))
+        kb = kb_result.scalars().first()
+        
+        if kb and kb.enable_graph_rag:
+            try:
+                from app.core.fuseki import fuseki_client
+                from app.services.ingestion.graph import graph_processor
+                
+                logger.info(f"Updating Graph RAG for chunk {chunk_id}")
+                
+                 # Ensure dataset exists
+                try:
+                    fuseki_client.create_dataset(kb_id)
+                except Exception as e:
+                    logger.warning(f"Could not create/verify dataset: {e}")
+                
+                # Delete existing triples for this chunk
+                # Delete all triples where the chunk is the source
+                chunk_uri = f"http://rag.local/source/{chunk_id}"
+                
+                # SPARQL DELETE query to remove old triples
+                delete_query = f"""
+                PREFIX rel: <http://rag.local/relation/>
+                DELETE {{
+                    ?s ?p ?o .
+                }}
+                WHERE {{
+                    ?s rel:hasSource <{chunk_uri}> .
+                    ?s ?p ?o .
+                }}
+                """
+                
+                fuseki_client.update(kb_id, delete_query)
+                logger.info(f"Deleted old graph triples for chunk {chunk_id}")
+                
+                # Extract new entities and relationships
+                config = kb.chunking_config if kb.chunking_config else {}
+                new_triples = await graph_processor.extract_graph_elements(content, chunk_id, kb_id, config)
+                
+                if new_triples:
+                    # Insert new triples
+                    fuseki_client.insert_triples(kb_id, new_triples)
+                    logger.info(f"Inserted {len(new_triples)} new graph triples for chunk {chunk_id}")
+                else:
+                    logger.warning(f"No graph elements extracted from updated chunk {chunk_id}")
+                    
+            except Exception as graph_error:
+                # Don't fail the entire update if graph update fails
+                logger.error(f"Error updating graph for chunk {chunk_id}: {graph_error}")
+                import traceback
+                traceback.print_exc()
+        
+        # Update document's updated_at timestamp
+        doc.updated_at = datetime.utcnow()
+        await db.commit()
+        
+        return {
+            "ok": True,
+            "chunk_id": chunk_id,
+            "content": content,
+            "updated_at": doc.updated_at.isoformat(),
+            "graph_updated": kb.enable_graph_rag if kb else False
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Error updating chunk: {e}")
+        print(error_details)
+        raise HTTPException(status_code=500, detail=f"Failed to update chunk: {str(e)}")

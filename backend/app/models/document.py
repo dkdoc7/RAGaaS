@@ -19,3 +19,5 @@ class Document(Base):
     file_type = Column(String)
     status = Column(String, default=DocumentStatus.PENDING.value)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=True)
+

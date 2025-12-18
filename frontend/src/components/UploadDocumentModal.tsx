@@ -20,6 +20,7 @@ export default function UploadDocumentModal({ isOpen, onClose, kbId, onUploadCom
         type: 'info'
     });
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [extractionMethod, setExtractionMethod] = useState<'llm' | 'spacy'>('llm');
 
     if (!isOpen) return null;
 
@@ -29,11 +30,19 @@ export default function UploadDocumentModal({ isOpen, onClose, kbId, onUploadCom
         }
     };
 
+
     const handleUpload = async () => {
         if (!file) return;
         setIsUploading(true);
         try {
-            await docApi.upload(kbId, file);
+            const config = {
+                graph_settings: {
+                    method: extractionMethod,
+                    auto_promote: extractionMethod === 'spacy', // Default to true for user convenience
+                    min_freq: 3
+                }
+            };
+            await docApi.upload(kbId, file, config);
             onUploadComplete();
             onClose();
             setFile(null);
@@ -98,6 +107,35 @@ export default function UploadDocumentModal({ isOpen, onClose, kbId, onUploadCom
                                 </div>
                             )}
                         </div>
+                    </div>
+
+                    <div style={{ marginBottom: '2rem' }}>
+                        <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Entity Extraction Method</label>
+                        <div style={{ display: 'flex', gap: '1.5rem' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                <input
+                                    type="radio"
+                                    name="method"
+                                    checked={extractionMethod === 'llm'}
+                                    onChange={() => setExtractionMethod('llm')}
+                                />
+                                <span>LLM (Default)</span>
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                <input
+                                    type="radio"
+                                    name="method"
+                                    checked={extractionMethod === 'spacy'}
+                                    onChange={() => setExtractionMethod('spacy')}
+                                />
+                                <span>spaCy (Bootstrap/Gazetteer)</span>
+                            </label>
+                        </div>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                            {extractionMethod === 'llm'
+                                ? "Uses OpenAI to extract entities. Slower but more flexible."
+                                : "Uses fast NLP + growing dictionary. Entities are auto-promoted to dictionary after 3 occurrences."}
+                        </p>
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>

@@ -75,7 +75,7 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
         breakpoint_type: 'percentile',
         breakpoint_amount: 95
     });
-    const [metricType, setMetricType] = useState('COSINE');
+    const [enableGraphRag, setEnableGraphRag] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
 
     if (!isOpen) return null;
@@ -89,7 +89,8 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
                 description,
                 chunking_strategy: strategy,
                 chunking_config: config,
-                metric_type: metricType
+                metric_type: 'COSINE',
+                enable_graph_rag: enableGraphRag
             });
             onCreateComplete();
             onClose();
@@ -97,6 +98,7 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
             setName('');
             setDescription('');
             setStrategy('size');
+            setEnableGraphRag(false);
         } catch (err) {
             console.error(err);
             alert('Failed to create Knowledge Base');
@@ -163,53 +165,24 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
                         />
                     </div>
 
-                    <div style={{ marginBottom: '1.5rem' }}>
-                        <LabelWithTooltip
-                            label="Similarity Metric"
-                            tooltip="Cosine: scores 0-1 (normalized). Inner Product: unbounded scores."
-                        />
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                            <div
-                                onClick={() => setMetricType('COSINE')}
-                                style={{
-                                    border: metricType === 'COSINE' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                                    borderRadius: '8px',
-                                    padding: '0.75rem',
-                                    cursor: 'pointer',
-                                    background: metricType === 'COSINE' ? '#eff6ff' : 'white',
-                                    transition: 'all 0.2s',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center'
-                                }}
-                            >
-                                <div>
-                                    <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>Cosine</div>
-                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>0-1 range</div>
+                    <div style={{ marginBottom: '1.5rem', padding: '1rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={enableGraphRag}
+                                onChange={(e) => setEnableGraphRag(e.target.checked)}
+                                style={{ width: '1.25rem', height: '1.25rem' }}
+                            />
+                            <div>
+                                <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>Enable Graph RAG (Beta)</div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                                    Extracts entities & relations using LLM to build a knowledge graph.
+                                    <span style={{ color: '#ef4444', marginLeft: '0.25rem' }}>
+                                        Warning: Significantly increases ingestion time and cost.
+                                    </span>
                                 </div>
-                                {metricType === 'COSINE' && <Check size={18} color="var(--primary)" />}
                             </div>
-                            <div
-                                onClick={() => setMetricType('IP')}
-                                style={{
-                                    border: metricType === 'IP' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                                    borderRadius: '8px',
-                                    padding: '0.75rem',
-                                    cursor: 'pointer',
-                                    background: metricType === 'IP' ? '#eff6ff' : 'white',
-                                    transition: 'all 0.2s',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center'
-                                }}
-                            >
-                                <div>
-                                    <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>Inner Product</div>
-                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Unbounded</div>
-                                </div>
-                                {metricType === 'IP' && <Check size={18} color="var(--primary)" />}
-                            </div>
-                        </div>
+                        </label>
                     </div>
 
                     <div style={{ marginBottom: '2rem' }}>
