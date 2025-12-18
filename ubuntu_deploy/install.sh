@@ -37,16 +37,25 @@ echo ""
 echo "Step 1: Checking system requirements..."
 echo "-----------------------------------"
 
-# Python 버전 확인
-if ! command -v python3.11 &> /dev/null; then
-    echo "Error: Python 3.11 is not installed!"
-    echo "Please install Python 3.11 first:"
+# Python 버전 확인 (3.11 또는 3.12)
+if ! command -v python3.12 &> /dev/null && ! command -v python3.11 &> /dev/null; then
+    echo "Error: Python 3.11 or 3.12 is not installed!"
+    echo "Please install Python 3.11 or 3.12 first:"
     echo "  sudo apt update"
     echo "  sudo apt install python3.11 python3.11-venv python3.11-dev python3-pip"
+    echo "  # OR"
+    echo "  sudo apt install python3.12 python3.12-venv python3.12-dev python3-pip"
     exit 1
 fi
 
-echo "✓ Python 3.11 found: $(python3.11 --version)"
+# Use whichever version is available (prefer 3.12)
+if command -v python3.12 &> /dev/null; then
+    PYTHON_CMD=python3.12
+else
+    PYTHON_CMD=python3.11
+fi
+
+echo "✓ Python found: $($PYTHON_CMD --version)"
 
 # Node.js 버전 확인
 if ! command -v node &> /dev/null; then
@@ -92,7 +101,7 @@ cd "$INSTALL_DIR/backend"
 
 # Python 가상환경 생성
 echo "Creating Python virtual environment..."
-python3.11 -m venv venv
+$PYTHON_CMD -m venv venv
 
 # 가상환경 활성화 및 패키지 설치
 echo "Installing Python packages from offline cache..."

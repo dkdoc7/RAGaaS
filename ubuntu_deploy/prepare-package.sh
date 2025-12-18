@@ -38,6 +38,15 @@ pip3 download -r ../../../backend/requirements.txt \
     --abi=cp311 \
     2>&1 | tee download.log
 
+# Python 3.12 패키지도 다운로드
+pip3 download -r ../../../backend/requirements.txt \
+    --only-binary=:all: \
+    --python-version=3.12 \
+    --platform=manylinux2014_x86_64 \
+    --platform=linux_x86_64 \
+    --abi=cp312 \
+    2>&1 | tee -a download.log
+
 # Universal 패키지도 다운로드 (pure Python)
 pip3 download -r ../../../backend/requirements.txt \
     --only-binary=:all: \
