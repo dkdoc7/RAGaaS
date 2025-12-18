@@ -1,5 +1,0 @@
-The capital of France is Paris. Paris is known for the Eiffel Tower.
-Python is a programming language created by Gu
-
-ido van Rossum.
-The Earth orbits around the Sun. It takes approximately 365 days to complete one orbit.
