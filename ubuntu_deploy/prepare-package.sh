@@ -30,28 +30,19 @@ echo "-----------------------------------"
 # Python 패키지 다운로드 (wheel 및 source 포함)
 cd "$PACKAGE_DIR/python"
 
-# Python 3.11용
-echo "Downloading for Python 3.11..."
-pip3 download -r ../../../backend/requirements.txt \
-    --python-version=3.11 \
-    --platform=manylinux2014_x86_64 \
-    --platform=linux_x86_64 \
-    --abi=cp311 \
-    2>&1 | tee download.log
+REQUIREMENTS_PATH="../../../backend/requirements.txt"
 
-# Python 3.12용
-echo "Downloading for Python 3.12..."
-pip3 download -r ../../../backend/requirements.txt \
-    --python-version=3.12 \
-    --platform=manylinux2014_x86_64 \
-    --platform=linux_x86_64 \
-    --abi=cp312 \
-    2>&1 | tee -a download.log
+# 절대 경로로 변환하여 확인
+echo "Checking requirements file at: $REQUIREMENTS_PATH"
+if [ ! -f "$REQUIREMENTS_PATH" ]; then
+    echo "Error: requirements.txt not found!"
+    exit 1
+fi
 
-# Pure Python 및 Source 패키지 (플랫폼 독립적)
-echo "Downloading platform-independent packages..."
-pip3 download -r ../../../backend/requirements.txt \
-    2>&1 | tee -a download.log
+# 간단한 방법: 모든 패키지를 한 번에 다운로드 (wheel + source)
+# 폐쇄망 설치 시 pip가 자동으로 적절한 버전 선택
+echo "Downloading all packages (wheel and source)..."
+pip3 download -r "$REQUIREMENTS_PATH" -d . 2>&1 | tee download.log
 
 echo ""
 echo "Python packages downloaded: $(ls -1 *.whl 2>/dev/null | wc -l) wheel files"
