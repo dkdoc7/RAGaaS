@@ -18,7 +18,7 @@ IMAGES=(
     "milvusdb/milvus:v2.3.3"
     "quay.io/coreos/etcd:v3.5.5"
     "minio/minio:RELEASE.2023-03-20T20-16-18Z"
-    "stain/jena-fuseki:4.7.0"
+    "stain/jena-fuseki:latest"
 )
 
 # 출력 디렉토리 생성

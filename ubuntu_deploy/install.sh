@@ -227,7 +227,7 @@ services:
 
   fuseki:
     container_name: ragaas-fuseki
-    image: stain/jena-fuseki:4.7.0
+    image: stain/jena-fuseki:latest
     environment:
       - ADMIN_PASSWORD=admin
       - JVM_ARGS=-Xmx2g
