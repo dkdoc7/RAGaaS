@@ -30,7 +30,7 @@ echo "-----------------------------------"
 # Python 패키지 다운로드 (wheel 형태)
 cd "$PACKAGE_DIR/python"
 
-pip download -r ../../backend/requirements.txt \
+pip3 download -r ../../../backend/requirements.txt \
     --only-binary=:all: \
     --python-version=3.11 \
     --platform=manylinux2014_x86_64 \
@@ -39,7 +39,7 @@ pip download -r ../../backend/requirements.txt \
     2>&1 | tee download.log
 
 # Universal 패키지도 다운로드 (pure Python)
-pip download -r ../../backend/requirements.txt \
+pip3 download -r ../../../backend/requirements.txt \
     --only-binary=:all: \
     --python-version=3.11 \
     --platform=any \
@@ -55,8 +55,8 @@ echo "-----------------------------------"
 cd "$PACKAGE_DIR/nodejs"
 
 # package.json 복사
-cp ../../frontend/package.json .
-cp ../../frontend/package-lock.json .
+cp ../../../frontend/package.json .
+cp ../../../frontend/package-lock.json .
 
 # npm 패키지 다운로드
 npm ci --production=false
