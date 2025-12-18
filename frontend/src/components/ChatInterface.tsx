@@ -76,11 +76,27 @@ export default function ChatInterface({
         onChunksReceived([]);
 
         try {
+            // Auto-switch to hybrid strategy when graph search is enabled
+            // When disabled, use selected strategy (but fallback to 'ann' if it's 'graph')
+            let effectiveStrategy = strategy;
+            if (enableGraphSearch) {
+                effectiveStrategy = 'hybrid';
+            } else if (strategy === 'graph') {
+                // If graph search is off but strategy is 'graph', use 'ann' instead
+                effectiveStrategy = 'ann';
+            }
+
+            console.log('[ChatInterface] Sending request with:', {
+                strategy: effectiveStrategy,
+                enable_graph_search: enableGraphSearch,
+                graph_hops: graphHops
+            });
+
             const response = await retrievalApi.chat(kbId, {
                 query: input,
                 top_k: topK,
                 score_threshold: scoreThreshold,
-                strategy,
+                strategy: effectiveStrategy,
                 use_reranker: useReranker,
                 reranker_top_k: rerankerTopK,
                 reranker_threshold: rerankerThreshold,

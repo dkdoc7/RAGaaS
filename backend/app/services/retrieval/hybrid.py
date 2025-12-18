@@ -74,6 +74,11 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                         graph_metadata = res["graph_metadata"]
             
             graph_chunk_ids = set([r["chunk_id"] for r in real_graph_results])
+            
+            # Keep graph results with their boosted scores and metadata
+            graph_results_map = {r["chunk_id"]: r for r in real_graph_results}
+        else:
+            graph_results_map = {}
         
         # 5. Union of results
         combined_indices = set()
@@ -88,27 +93,35 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             if chunk_id in chunk_id_to_idx:
                 combined_indices.add(chunk_id_to_idx[chunk_id])
                 
-        # 6. Recalculate Scores (Cosine)
+        # 6. Recalculate Scores (Cosine) - but preserve graph scores if available
         final_results = []
         for idx in combined_indices:
             doc = all_docs[idx]
-            chunk_vector = doc.get("vector")
-            cosine_score = 0.0
-            if chunk_vector:
-                cosine_score = self._cosine_similarity(query_vec, chunk_vector)
+            chunk_id = doc["chunk_id"]
             
-            # Boost score if found in graph?
-            # For now, just rely on the fact that it was included in the candidate set.
-            # Reranker can handle the final ordering better.
+            # Check if this chunk came from graph search with boosted score
+            if chunk_id in graph_results_map:
+                # Use the graph result with its boosted score
+                graph_result = graph_results_map[chunk_id]
+                cosine_score = graph_result["score"]
+                metadata = graph_result.get("metadata", {"doc_id": doc["doc_id"]})
+                metadata["hybrid_source"] = "graph+hybrid"
+            else:
+                # Calculate cosine for BM25/vector results
+                chunk_vector = doc.get("vector")
+                cosine_score = 0.0
+                if chunk_vector:
+                    cosine_score = self._cosine_similarity(query_vec, chunk_vector)
+                metadata = {"doc_id": doc["doc_id"], "hybrid_source": "bm25+vector"}
             
             if cosine_score < score_threshold:
                 continue
             
             final_results.append({
-                "chunk_id": doc["chunk_id"],
+                "chunk_id": chunk_id,
                 "content": doc["content"],
                 "score": cosine_score,
-                "metadata": {"doc_id": doc["doc_id"]}
+                "metadata": metadata
             })
             
         final_results.sort(key=lambda x: x["score"], reverse=True)

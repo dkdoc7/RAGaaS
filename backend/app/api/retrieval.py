@@ -12,7 +12,7 @@ import os
 router = APIRouter()
 
 class ChatRequest(BaseModel):
-    query: str
+    query: str  # Reverted to query to match frontend
     top_k: int = 5
     score_threshold: float = 0.0
     strategy: str = "hybrid"
