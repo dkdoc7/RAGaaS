@@ -27,31 +27,30 @@ mkdir -p "$PACKAGE_DIR/system"
 echo "Step 1: Downloading Python packages..."
 echo "-----------------------------------"
 
-# Python 패키지 다운로드 (wheel 형태)
+# Python 패키지 다운로드 (wheel 및 source 포함)
 cd "$PACKAGE_DIR/python"
 
+# Python 3.11용
+echo "Downloading for Python 3.11..."
 pip3 download -r ../../../backend/requirements.txt \
-    --only-binary=:all: \
     --python-version=3.11 \
     --platform=manylinux2014_x86_64 \
     --platform=linux_x86_64 \
     --abi=cp311 \
     2>&1 | tee download.log
 
-# Python 3.12 패키지도 다운로드
+# Python 3.12용
+echo "Downloading for Python 3.12..."
 pip3 download -r ../../../backend/requirements.txt \
-    --only-binary=:all: \
     --python-version=3.12 \
     --platform=manylinux2014_x86_64 \
     --platform=linux_x86_64 \
     --abi=cp312 \
     2>&1 | tee -a download.log
 
-# Universal 패키지도 다운로드 (pure Python)
+# Pure Python 및 Source 패키지 (플랫폼 독립적)
+echo "Downloading platform-independent packages..."
 pip3 download -r ../../../backend/requirements.txt \
-    --only-binary=:all: \
-    --python-version=3.11 \
-    --platform=any \
     2>&1 | tee -a download.log
 
 echo ""
