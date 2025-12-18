@@ -63,6 +63,17 @@ echo "-----------------------------------"
 cd "$PACKAGE_DIR/nodejs"
 
 # package.json 복사
+echo "Current directory: $(pwd)"
+echo "Looking for package.json at: ../../../frontend/package.json"
+echo "Absolute path would be: $(cd ../../.. && pwd)/frontend/package.json"
+
+if [ ! -f "../../../frontend/package.json" ]; then
+    echo "Error: package.json not found at ../../../frontend/package.json"
+    echo "Contents of ../../../:"
+    ls -la ../../.. | head -20
+    exit 1
+fi
+
 cp ../../../frontend/package.json .
 cp ../../../frontend/package-lock.json .
 
