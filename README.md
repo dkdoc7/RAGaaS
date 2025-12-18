@@ -116,6 +116,55 @@ npm run dev
 
 - Frontend: http://localhost:5173
 - Backend API Docs: http://localhost:8000/docs
+
+## Docker를 사용한 배포
+
+### 개발/테스트 환경
+
+```bash
+# 전체 스택 시작 (Milvus + Backend + Frontend)
+docker-compose up -d
+
+# 로그 확인
+docker-compose logs -f
+
+# 중지
+docker-compose down
+```
+
+### 폐쇄망(Air-Gapped) 환경 배포
+
+인터넷이 차단된 폐쇄망 환경에 배포하는 방법:
+
+**1. 인터넷 연결 환경에서 패키지 준비**:
+```bash
+# Docker 이미지와 애플리케이션을 하나의 패키지로 export
+./export-for-airgap.sh
+
+# 생성된 ragaas-deploy-YYYYMMDD-HHMMSS.tar.gz를 폐쇄망 서버로 전송
+```
+
+**2. 폐쇄망 서버에서 배포**:
+```bash
+# 패키지 압축 해제
+tar -xzf ragaas-deploy-YYYYMMDD-HHMMSS.tar.gz
+cd ragaas-deploy
+
+# Docker 이미지 로드
+./import-from-airgap.sh
+
+# 환경 설정
+vi .env  # OpenAI API Key 등 설정
+
+# 서비스 시작
+docker-compose up -d
+```
+
+**자세한 가이드**: [AIRGAP-DEPLOY.md](AIRGAP-DEPLOY.md) 참조
+
+접속:
+- Frontend: http://서버IP
+- Backend API: http://서버IP:8000/docs
 - Fuseki Admin UI: http://localhost:3030 (Graph RAG 사용 시)
 
 ## 문서
