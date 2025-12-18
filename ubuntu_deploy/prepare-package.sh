@@ -30,12 +30,14 @@ echo "-----------------------------------"
 # Python 패키지 다운로드 (wheel 및 source 포함)
 cd "$PACKAGE_DIR/python"
 
-REQUIREMENTS_PATH="../../../backend/requirements.txt"
+# 절대 경로 계산 (상대 경로 문제 방지)
+REQUIREMENTS_PATH="$(cd "$SCRIPT_DIR/.." && pwd)/backend/requirements.txt"
 
-# 절대 경로로 변환하여 확인
 echo "Checking requirements file at: $REQUIREMENTS_PATH"
 if [ ! -f "$REQUIREMENTS_PATH" ]; then
-    echo "Error: requirements.txt not found!"
+    echo "Error: requirements.txt not found at $REQUIREMENTS_PATH"
+    echo "SCRIPT_DIR: $SCRIPT_DIR"
+    echo "Current dir: $(pwd)"
     exit 1
 fi
 
@@ -53,20 +55,20 @@ echo "-----------------------------------"
 
 cd "$PACKAGE_DIR/nodejs"
 
-# package.json 복사
-echo "Current directory: $(pwd)"
-echo "Looking for package.json at: ../../../frontend/package.json"
-echo "Absolute path would be: $(cd ../../.. && pwd)/frontend/package.json"
+# 절대 경로 계산
+FRONTEND_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/frontend"
 
-if [ ! -f "../../../frontend/package.json" ]; then
-    echo "Error: package.json not found at ../../../frontend/package.json"
-    echo "Contents of ../../../:"
-    ls -la ../../.. | head -20
+echo "Current directory: $(pwd)"
+echo "Frontend directory: $FRONTEND_DIR"
+
+if [ ! -f "$FRONTEND_DIR/package.json" ]; then
+    echo "Error: package.json not found at $FRONTEND_DIR/package.json"
     exit 1
 fi
 
-cp ../../../frontend/package.json .
-cp ../../../frontend/package-lock.json .
+# package.json 복사
+cp "$FRONTEND_DIR/package.json" .
+cp "$FRONTEND_DIR/package-lock.json" .
 
 # npm 패키지 다운로드
 npm ci --production=false
