@@ -14,8 +14,10 @@ Milvus 기반의 다수의 RAG (Retrieval-Augmented Generation) 지식 베이스
 - **Keyword Search**: BM25 (rank-bm25)
 
 ### Graph RAG 기술 스택
-- **Graph Database**: Apache Jena Fuseki (TDB2)
-- **Query Language**: SPARQL 1.1
+- **Graph Database**: 
+  - Apache Jena Fuseki (TDB2) - Ontology Mode
+  - Neo4j - Knowledge Graph Mode
+- **Query Language**: SPARQL 1.1, Cypher
 - **Entity Extraction**: 
   - OpenAI GPT-4o-mini (LLM 기반)
   - spaCy (한국어 NER: `ko_core_news_sm`)
@@ -52,11 +54,13 @@ Milvus 기반의 다수의 RAG (Retrieval-Augmented Generation) 지식 베이스
   - L2 거리 임계값 필터링 (0.0-2.0)
   - Score와 L2 거리를 모두 표시하여 투명성 제공
 - **Graph RAG (Beta)**: 지식 그래프 기반 관계 탐색 검색
-  - RDF 기반 지식 그래프 자동 구축 (Apache Jena Fuseki)
+  - **멀티 백엔드 지원**:
+    - **Apache Jena Fuseki**: RDF 기반, SPARQL 추론 및 질의
+    - **Neo4j**: Property Graph 기반, Cypher 질의 및 고성능 탐색
   - 이중 엔티티 추출: LLM (GPT-4o-mini) + spaCy NER
   - **의미 기반 쿼리 분석**: Multi-hop 관계 자동 감지 (예: "A의 B의 C")
   - **엔티티 자동 확장**: 관련 엔티티를 그래프에서 탐색하여 검색 범위 확대
-  - SPARQL 쿼리를 통한 유연한 엔티티 관계 탐색
+  - SPARQL/Cypher 쿼리를 통한 유연한 엔티티 관계 탐색
   - 설정 가능한 그래프 탐색 깊이 (1-5 hops)
   - **스코어 부스팅**: 그래프 검색 결과에 1.5x 가중치 적용
   - Hybrid 검색과의 통합으로 완전한 검색 커버리지 제공
@@ -81,6 +85,8 @@ docker-compose up -d
 - **Milvus**: 벡터 데이터베이스 (포트 19530)
 - **Apache Jena Fuseki**: Graph RAG용 RDF 스토어 (포트 3030)
   - Fuseki UI: http://localhost:3030
+- **Neo4j**: Knowledge Graph용 Graph DB (포트 7474, 7687)
+  - Neo4j Browser: http://localhost:7474
 
 ### 2. Backend 설정
 
