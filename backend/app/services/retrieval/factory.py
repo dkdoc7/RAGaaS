@@ -15,7 +15,7 @@ class RetrievalFactory:
             return HybridRetrievalStrategy()
         elif strategy_name == "2-stage":
             return TwoStageRetrievalStrategy()
-        elif strategy_name == "graph":
+        elif strategy_name in ["graph", "hybrid_graph", "hybrid_ontology"]:
             return GraphRetrievalStrategy()
         else:
             return VectorRetrievalStrategy()

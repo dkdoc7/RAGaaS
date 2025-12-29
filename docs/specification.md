@@ -14,19 +14,29 @@
 -   **리랭킹 모델**: Cross-Encoder `cross-encoder/ms-marco-MiniLM-L-6-v2`
 -   **키워드 검색**: BM25 (rank-bm25)
 
-### 2.2 Graph RAG 기술 스택
+### 2.2 Graph-Enhanced RAG 기술 스택
+
+**그래프 백엔드 옵션 1: Using Ontology (Jena+Fuseki) - Beta**
 -   **그래프 데이터베이스**: Apache Jena Fuseki (TDB2 스토어)
 -   **쿼리 언어**: SPARQL 1.1
 -   **그래프 포맷**: RDF (N-Triples)
--   **엔티티 추출**: 
-    -   OpenAI GPT-4o-mini (LLM 기반 관계 추출)
-    -   spaCy NER (한국어 모델: `ko_core_news_sm`)
-    -   이중 추출로 정확도 향상
 -   **Python 라이브러리**: SPARQLWrapper, spaCy
 -   **네임스페이스**:
     -   엔티티: `http://rag.local/entity/`
     -   관계: `http://rag.local/relation/`
     -   소스: `http://rag.local/source/`
+
+**그래프 백엔드 옵션 2: Using Knowledge Graph (Neo4j)**
+-   **그래프 데이터베이스**: Neo4j
+-   **쿼리 언어**: Cypher
+-   **그래프 포맷**: 속성 그래프 (Property Graph)
+-   **Python 라이브러리**: neo4j, spaCy
+
+**공통**:
+-   **엔티티 추출**: 
+    -   OpenAI GPT-4o-mini (LLM 기반 관계 추출)
+    -   spaCy NER (한국어 모델: `ko_core_news_sm`)
+    -   이중 추출로 정확도 향상
 
 ## 3. 핵심 기능
 
@@ -57,11 +67,17 @@
 -   **2단계 검색 (Two-Stage Retrieval)**:
     -   **1단계 (Candidate Generation)**: ANN으로 상위 25개 후보 검색.
     -   **2단계 (Reranking)**: Cross-Encoder 모델(`cross-encoder/ms-marco-MiniLM-L-6-v2`)로 정밀 평가 후 순위 재정렬.
+    -   **UI 동작**: 2단계 검색 선택 시 자동으로 **Flat Index (L2)** 가 활성화되어, 최종 결과에 대해 정밀 거리 계산 검증을 수행합니다.
     -   **최종 점수**: 재정렬된 순서를 유지하되, 점수는 코사인 유사도로 표시.
 -   **하이브리드 검색 (Hybrid Search - ANN + BM25)**:
     -   BM25 통계 기반 키워드 검색과 ANN 벡터 검색 결과를 결합.
     -   양쪽 결과의 합집합에 대해 코사인 유사도를 계산하여 최종 순위 결정.
+    -   양쪽 결과의 합집합에 대해 코사인 유사도를 계산하여 최종 순위 결정.
     -   키워드 정확도와 의미적 유사성을 모두 고려한 최적의 검색 정확도 제공.
+-   **하이브리드 그래프 검색 (Hybrid Search + Graph/Ontology)**:
+    -   **Hybrid (+Graph)**: Neo4j 기반의 지식 그래프 탐색 결과를 통합하여 검색.
+    -   **Hybrid (+Ontology)**: Jena Fuseki 기반의 온톨로지 추론 결과를 통합하여 검색.
+    -   검색 쿼리에서 추출된 엔티티의 관계를 그래프에서 탐색하여, 텍스트 유사도만으로는 찾기 힘든 연관 문서를 발견합니다.
 
 **통일된 점수 체계**: 모든 검색 전략은 Score Threshold (0~1)를 동일하게 적용할 수 있으며, 검색 결과 비교가 용이합니다.
 
@@ -132,62 +148,107 @@
 - Graph Search와 상호 배타적 (동시 사용 불가)
 - 연산 비용이 높으므로 초기 후보 수를 적절히 제한하는 것이 좋음
 
-### 3.8 Graph RAG (지식 그래프 기반 검색)
+### 3.8 Graph-Enhanced RAG (그래프 기반 검색)
 
-**Graph RAG**는 문서로부터 자동으로 엔티티와 관계를 추출하여 RDF 그래프를 구축하고, SPARQL 쿼리로 관련 엔티티를 탐색하는 고급 검색 기능입니다.
+**Graph-Enhanced RAG**는 문서로부터 자동으로 엔티티와 관계를 추출하여 그래프를 구축하고, 그래프 쿼리로 관련 엔티티를 탐색하는 고급 검색 기능입니다. 사용자는 두 가지 그래프 백엔드 중 하나를 선택할 수 있습니다:
 
-**동작 방식**:
+#### 3.8.1 그래프 백엔드 옵션
 
-1. **그래프 구축 (인덱싱 단계)**:
+**옵션 1: Using Ontology (Jena+Fuseki) - Beta**
+- **설명**: RDF 기반 온톨로지를 구축하여 의미적 추론과 SPARQL 쿼리를 지원합니다. 향후 OWL/RDFS 온톨로지 스키마 기능이 추가될 예정입니다.
+- **기술**: Apache Jena Fuseki, RDF, SPARQL
+- **용도**: 온톨로지 기반 검색, 의미적 관계 추론
+
+**옵션 2: Using Knowledge Graph (Neo4j)**
+- **설명**: 속성 그래프(Property Graph) 기반 지식 그래프를 구축하여 Cypher 쿼리를 지원합니다.
+- **기술**: Neo4j Graph Database, Cypher
+- **용도**: 네이티브 그래프 검색, 고성능 관계 탐색
+
+**중요**: 두 옵션은 **상호 배타적**입니다. Knowledge Base 생성 시 하나만 선택하거나, 둘 다 선택하지 않을 수 있습니다.
+
+#### 3.8.2 공통 동작 방식
+
+**1. 그래프 구축 (인덱싱 단계)**:
    - 문서 업로드 시 각 청크에서 엔티티와 관계 추출
    - 이중 추출 방식:
      - **LLM 기반** (GPT-4o-mini): 텍스트에서 Subject-Predicate-Object 트리플 추출
-     - **spaCy NER**: 한국어 개체명 인식 및 황조사 제거
-   - RDF N-Triples 형식으로 벀환:
-     ```
-     <http://rag.local/entity/Elon_Musk> <http://rag.local/relation/is_CEO_of> <http://rag.local/entity/SpaceX> .
-     <http://rag.local/entity/Elon_Musk> <http://rag.local/relation/hasSource> <http://rag.local/source/chunk_123> .
-     ```
-   - Apache Jena Fuseki에 트리플 저장
+     - **spaCy NER**: 한국어 개체명 인식 및 조사 제거
+   - 백엔드별로 저장:
+     - **Fuseki**: RDF N-Triples 형식으로 저장
+     - **Neo4j**: Cypher CREATE 문으로 노드와 관계 저장
 
-2. **검색 단계**:
+**2. 검색 단계**:
    - **의미 기반 쿼리 분석** (LLM 활용):
      - Multi-hop 관계 쿼리 자동 감지 (예: "A의 B의 C")
      - 관계 타입 추출 (master, student, 스승, 제자 등)
    - 사용자 쿼리에서 엔티티 추출 (LLM + spaCy)
    - **엔티티 자동 확장**: 추출된 엔티티와 연결된 관련 엔티티 탐색
-   - SPARQL 쿼리로 그래프 탐색 (1-5 hops, 기본값 2)
+   - 그래프 탐색 (1-5 hops, 기본값 2):
+     - **Fuseki**: SPARQL 쿼리 실행
+     - **Neo4j**: Cypher 쿼리 실행
    - **스코어 부스팅**: 그래프 발견 청크에 1.5x 가중치 적용
    - **Hybrid 통합 및 Fallback**: 그래프 + BM25/Vector 병합
 
-3. **메타데이터 표시**:
-   - 추출/확장된 엔티티, SPARQL 쿼리, 트리플, 쿼리 분석
+**3. 메타데이터 표시**:
+   - 추출/확장된 엔티티
+   - 실행된 쿼리 (SPARQL 또는 Cypher)
+   - 발견된 트리플 또는 관계
+   - 쿼리 분석 결과
 
-**파라미터**:
-- `enable_graph_rag`: KB 생성 시 활성화 (boolean, 기본: false)
+#### 3.8.3 Fuseki 백엔드 상세 사양
+
+**그래프 포맷**: RDF (N-Triples)
+
+**RDF 트리플 구조 예시**:
+```turtle
+<http://rag.local/entity/Elon_Musk> <http://rag.local/relation/is_CEO_of> <http://rag.local/entity/SpaceX> .
+<http://rag.local/entity/Elon_Musk> <http://rag.local/relation/hasSource> <http://rag.local/source/chunk_123> .
+```
+
+**네임스페이스**:
+- 엔티티: `http://rag.local/entity/`
+- 관계: `http://rag.local/relation/`
+- 소스: `http://rag.local/source/`
+
+**기술 스택**:
+- **그래프 데이터베이스**: Apache Jena Fuseki (TDB2 스토어)
+- **쿼리 언어**: SPARQL 1.1
+- **Python 라이브러리**: SPARQLWrapper
+
+#### 3.8.4 Neo4j 백엔드 상세 사양
+
+**그래프 포맷**: 속성 그래프 (Property Graph)
+
+**노드 및 관계 구조 예시**:
+```cypher
+CREATE (e:Entity {name: 'Elon Musk', type: 'PERSON'})
+CREATE (c:Entity {name: 'SpaceX', type: 'ORG'})
+CREATE (e)-[:IS_CEO_OF]->(c)
+CREATE (e)-[:HAS_SOURCE {chunk_id: 'chunk_123'}]->(s:Source {id: 'chunk_123'})
+```
+
+**기술 스택**:
+- **그래프 데이터베이스**: Neo4j
+- **쿼리 언어**: Cypher
+- **Python 라이브러리**: neo4j (공식 Python 드라이버)
+
+#### 3.8.5 파라미터
+
+- `graph_backend`: KB 생성 시 선택 (enum: "none", "ontology", "neo4j", 기본: "none")
 - `enable_graph_search`: 검색 시 사용 (boolean, 기본: false)
 - `graph_hops`: 탐색 깊이 (1-5, 기본: 2)
 
-**기술 사양**:
-- **그래프 DB**: Apache Jena Fuseki 4.x
-- **저장 백엔드**: TDB2 (Native RDF Store)
-- **데이터셋**: 각 KB마다 별도 데이터셋 (`kb_{kb_id}`)
-- **네임스페이스**:
-  - `http://rag.local/entity/`: 엔티티
-  - `http://rag.local/relation/`: 관계/속성
-  - `http://rag.local/source/`: 소스 청크
-- **타입 속성**: `rdfs:label` (엔티티 레이블), `rel:hasSource` (출처 링크)
+#### 3.8.6 사용 사례
 
-**사용 사례**:
 - 질문: "일론 머스크가 CEO인 회사는?"
 - 추출 엔티티: ["일론 머스크", "CEO"]
-- SPARQL으로 "일론 머스크" -> "is_CEO_of" -> "SpaceX" 관계 발견
-- 해당 트리플의 소스 청크 반환
+- 그래프 탐색으로 "일론 머스크" → "is_CEO_of" → "SpaceX" 관계 발견
+- 해당 관계의 소스 청크 반환
 
 **장점**:
 - 단순 키워드 매칭을 넘어 관계 기반 검색 가능
 - 메타데이터로 검색 과정 투명성 제공
-- SPARQL의 강력한 패턴 매칭 활용
+- 강력한 그래프 쿼리 언어 활용 (SPARQL/Cypher)
 
 **제한사항**:
 - Beta 기능으로 성능 최적화 진행 중
@@ -250,7 +311,7 @@
 -   `id`: UUID (Primary Key)
 -   `name`: String
 -   `description`: String
--   `enable_graph_rag`: Boolean (Graph RAG 활성화 여부, 기본값: false)
+-   `graph_backend`: String (Graph 백엔드 타입: "none", "ontology", "neo4j", 기본값: "none")
 -   `created_at`: Timestamp
 -   `updated_at`: Timestamp
 
@@ -270,8 +331,13 @@
 -   `content`: String (실제 텍스트 청크)
 -   `vector`: FloatVector (임베딩)
 
-### 5.3 Apache Jena Fuseki (Graph Data)
-**데이터셋: kb_{kb_id}** (각 Knowledge Base마다 별도 데이터셋)
+### 5.3 그래프 데이터 저장소
+
+각 Knowledge Base는 `graph_backend` 설정에 따라 다른 그래프 DB를 사용합니다.
+
+#### 5.3.1 Jena Fuseki (Ontology Backend)
+
+**데이터셋**: `kb_{kb_id}` (각 Knowledge Base마다 별도 데이터셋)
 
 **RDF 트리플 구조**:
 1. **엔티티 정의**:
@@ -297,6 +363,32 @@
 -   **타입**: `http://rag.local/type/` - 엔티티 타입 (PERSON, ORG, GPE 등)
 
 **SPARQL 엔드포인트**: `http://fuseki:3030/kb_{kb_id}/query`
+
+#### 5.3.2 Neo4j (Knowledge Graph Backend)
+
+**데이터베이스**: 각 Knowledge Base마다 별도 라벨 또는 데이터베이스 사용
+
+**노드 및 관계 구조**:
+1. **엔티티 노드**:
+   ```cypher
+   CREATE (e:Entity:KB_{kb_id} {
+     name: 'Elon Musk',
+     type: 'PERSON',
+     normalized: 'elon_musk'
+   })
+   ```
+
+2. **관계**:
+   ```cypher
+   CREATE (e1:Entity)-[:IS_CEO_OF]->(e2:Entity)
+   ```
+
+3. **소스 링크**:
+   ```cypher
+   CREATE (e:Entity)-[:HAS_SOURCE {chunk_id: 'chunk_abc123'}]->(s:Source {id: 'chunk_abc123'})
+   ```
+
+**Cypher 엔드포인트**: Neo4j Bolt 프로토콜 (`bolt://neo4j:7687`)
 
 ## 6. UI/UX (React)
 

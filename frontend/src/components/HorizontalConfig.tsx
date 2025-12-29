@@ -74,6 +74,7 @@ export default function HorizontalConfig({
     const isHybridGraph = searchStrategy === 'hybrid_graph' || searchStrategy === 'hybrid_ontology';
 
     const showNER = !isHybridGraph;
+    const showReranker = !isHybridGraph;
     const showBruteForce = searchStrategy === '2-stage';
 
     const handleStrategyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -87,6 +88,7 @@ export default function HorizontalConfig({
             setUseBruteForce(false);
             setEnableGraphSearch(true);
             setUseNER(false);
+            setUseReranker(false);
         }
     };
 
@@ -110,6 +112,7 @@ export default function HorizontalConfig({
                             <option value="ann">Vector Search (ANN)</option>
                             <option value="keyword">Keyword Search (BM25)</option>
                             <option value="2-stage">2 Stage Search (+Brute Force)</option>
+                            <option value="hybrid">Hybrid Search (ANN + BM25)</option>
 
                             {enableGraphRag && graphBackend === 'neo4j' && (
                                 <option value="hybrid_graph">Hybrid Search (+Graph)</option>
@@ -118,7 +121,7 @@ export default function HorizontalConfig({
                                 <option value="hybrid_ontology">Hybrid Search (+Ontology)</option>
                             )}
                         </select>
-                        {searchStrategy === 'keyword' && (
+                        {(searchStrategy === 'keyword' || searchStrategy === 'hybrid') && (
                             <div style={{ marginTop: '5px' }}>
                                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer', color: 'var(--text-secondary)' }}>
                                     <input
@@ -169,93 +172,95 @@ export default function HorizontalConfig({
                 </div>
 
                 {/* Column 2: Reranker Settings */}
-                <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '2rem', width: '290px', boxSizing: 'content-box' }}>
-                    <div style={{ marginBottom: '0.5rem' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem' }}>
-                            <input
-                                type="checkbox"
-                                checked={useReranker}
-                                onChange={(e) => setUseReranker(e.target.checked)}
-                            />
-                            Use Reranker
-                        </label>
-                    </div>
-
-                    <div style={{ paddingLeft: '0.5rem', opacity: useReranker ? 1 : 0.5, transition: 'opacity 0.2s' }}>
-                        <div style={{ display: 'flex', gap: '1rem' }}>
-                            <div style={{ flex: 1 }}>
-                                <label style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                    <span>Top K</span>
-                                    <span>{rerankerTopK}</span>
-                                </label>
-                                <input
-                                    type="range"
-                                    min="1"
-                                    max="20"
-                                    value={rerankerTopK}
-                                    onChange={(e) => setRerankerTopK(Number(e.target.value))}
-                                    disabled={!useReranker}
-                                    style={{ width: '100%', cursor: useReranker ? 'pointer' : 'not-allowed' }}
-                                />
-                            </div>
-
-                            <div style={{ flex: 1 }}>
-                                <label style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                    <span>Threshold</span>
-                                    <span>{rerankerThreshold.toFixed(2)}</span>
-                                </label>
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max="1"
-                                    step="0.05"
-                                    value={rerankerThreshold}
-                                    onChange={(e) => setRerankerThreshold(Number(e.target.value))}
-                                    disabled={!useReranker}
-                                    style={{ width: '100%', cursor: useReranker ? 'pointer' : 'not-allowed' }}
-                                />
-                            </div>
-                        </div>
-
-                        <div style={{ marginTop: '0.7rem' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: useReranker ? 'pointer' : 'not-allowed', fontWeight: 600, fontSize: '0.85rem' }}>
+                {showReranker && (
+                    <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '2rem', width: '290px', boxSizing: 'content-box' }}>
+                        <div style={{ marginBottom: '0.5rem' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem' }}>
                                 <input
                                     type="checkbox"
-                                    checked={useLLMReranker}
-                                    onChange={(e) => setUseLLMReranker(e.target.checked)}
-                                    disabled={!useReranker}
+                                    checked={useReranker}
+                                    onChange={(e) => setUseReranker(e.target.checked)}
                                 />
-                                Use LLM Reranker
+                                Use Reranker
                             </label>
+                        </div>
 
-                            <div style={{
-                                marginTop: '0.5rem',
-                                paddingLeft: '1.5rem',
-                                opacity: useLLMReranker ? 1 : 0.5,
-                                transition: 'opacity 0.2s'
-                            }}>
-                                <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '0.25rem', color: 'var(--text-secondary)' }}>
-                                    Chunk Strategy
+                        <div style={{ paddingLeft: '0.5rem', opacity: useReranker ? 1 : 0.5, transition: 'opacity 0.2s' }}>
+                            <div style={{ display: 'flex', gap: '1rem' }}>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                        <span>Top K</span>
+                                        <span>{rerankerTopK}</span>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="1"
+                                        max="20"
+                                        value={rerankerTopK}
+                                        onChange={(e) => setRerankerTopK(Number(e.target.value))}
+                                        disabled={!useReranker}
+                                        style={{ width: '100%', cursor: useReranker ? 'pointer' : 'not-allowed' }}
+                                    />
+                                </div>
+
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                        <span>Threshold</span>
+                                        <span>{rerankerThreshold.toFixed(2)}</span>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="1"
+                                        step="0.05"
+                                        value={rerankerThreshold}
+                                        onChange={(e) => setRerankerThreshold(Number(e.target.value))}
+                                        disabled={!useReranker}
+                                        style={{ width: '100%', cursor: useReranker ? 'pointer' : 'not-allowed' }}
+                                    />
+                                </div>
+                            </div>
+
+                            <div style={{ marginTop: '0.7rem' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: useReranker ? 'pointer' : 'not-allowed', fontWeight: 600, fontSize: '0.85rem' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={useLLMReranker}
+                                        onChange={(e) => setUseLLMReranker(e.target.checked)}
+                                        disabled={!useReranker}
+                                    />
+                                    Use LLM Reranker
                                 </label>
-                                <select
-                                    className="input"
-                                    value={llmChunkStrategy}
-                                    onChange={(e) => setLlmChunkStrategy(e.target.value)}
-                                    disabled={!useReranker || !useLLMReranker}
-                                    style={{
-                                        fontSize: '0.8rem',
-                                        padding: '0.25rem',
-                                        cursor: (useReranker && useLLMReranker) ? 'pointer' : 'not-allowed'
-                                    }}
-                                >
-                                    <option value="full">Full Context</option>
-                                    <option value="limited">Limited Context</option>
-                                    <option value="smart">Smart Selection</option>
-                                </select>
+
+                                <div style={{
+                                    marginTop: '0.5rem',
+                                    paddingLeft: '1.5rem',
+                                    opacity: useLLMReranker ? 1 : 0.5,
+                                    transition: 'opacity 0.2s'
+                                }}>
+                                    <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '0.25rem', color: 'var(--text-secondary)' }}>
+                                        Chunk Strategy
+                                    </label>
+                                    <select
+                                        className="input"
+                                        value={llmChunkStrategy}
+                                        onChange={(e) => setLlmChunkStrategy(e.target.value)}
+                                        disabled={!useReranker || !useLLMReranker}
+                                        style={{
+                                            fontSize: '0.8rem',
+                                            padding: '0.25rem',
+                                            cursor: (useReranker && useLLMReranker) ? 'pointer' : 'not-allowed'
+                                        }}
+                                    >
+                                        <option value="full">Full Context</option>
+                                        <option value="limited">Limited Context</option>
+                                        <option value="smart">Smart Selection</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
+                )}
 
                 {/* Column 3: NER Filter (Use placeholder to keep layout fixed) */}
                 {showNER && (
