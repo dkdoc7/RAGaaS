@@ -257,7 +257,7 @@ export default function KnowledgeBaseDetail() {
                                         color: 'white'
                                     }}
                                 >
-                                    {kb.graph_backend === 'ontology' ? '🔗 Ontology' : '📊 Neo4j'}
+                                    {kb.graph_backend === 'ontology' ? 'Ontology' : 'Neo4j'}
                                 </span>
                                 <button
                                     onClick={() => setShowEntityModal(true)}
@@ -295,7 +295,7 @@ export default function KnowledgeBaseDetail() {
                     className={clsx('tab', activeTab === 'chat' && 'active')}
                     onClick={() => setActiveTab('chat')}
                 >
-                    Chat
+                    Playground
                 </button>
                 <button
                     className={clsx('tab', activeTab === 'settings' && 'active')}

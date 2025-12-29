@@ -14,7 +14,7 @@ interface KnowledgeBase {
     chunking_strategy?: string;
     document_count?: number;
     total_size?: number;
-    enable_graph_rag?: boolean;
+    graph_backend?: string;
 }
 
 export default function Dashboard() {
@@ -120,18 +120,18 @@ export default function Dashboard() {
                                                     {kb.chunking_strategy === 'context_aware' && 'Context Aware'}
                                                     {!kb.chunking_strategy && 'N/A'}
                                                 </span>
-                                                {kb.enable_graph_rag && (
+                                                {kb.graph_backend && kb.graph_backend !== 'none' && (
                                                     <span style={{
-                                                        backgroundColor: '#4d7c0f',
+                                                        backgroundColor: kb.graph_backend === 'ontology' ? '#1e40af' : '#166534',
                                                         color: 'white',
-                                                        fontSize: '0.6rem',
+                                                        fontSize: '0.7rem',
                                                         padding: '2px 8px',
                                                         borderRadius: '10px',
                                                         fontWeight: 600,
                                                         lineHeight: 1,
                                                         marginLeft: '4px'
                                                     }}>
-                                                        Graph
+                                                        {kb.graph_backend === 'ontology' ? 'Ontology' : 'Neo4j'}
                                                     </span>
                                                 )}
                                             </div>
