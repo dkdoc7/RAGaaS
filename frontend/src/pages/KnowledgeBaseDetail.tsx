@@ -100,21 +100,21 @@ export default function KnowledgeBaseDetail() {
             const saved = localStorage.getItem('retrievalSettings');
             if (saved) {
                 const settings = JSON.parse(saved);
-                setSearchStrategy(settings.searchStrategy || 'ann');
-                setTopK(settings.topK || 5);
-                setScoreThreshold(settings.scoreThreshold || 0.5);
-                setUseReranker(settings.useReranker || false);
-                setRerankerTopK(settings.rerankerTopK || 5);
-                setRerankerThreshold(settings.rerankerThreshold || 0.0);
-                setUseLLMReranker(settings.useLLMReranker || false);
-                setLlmChunkStrategy(settings.llmChunkStrategy || 'full');
-                setUseNER(settings.useNER || false);
-                setUseLLMKeywordExtraction(settings.useLLMKeywordExtraction || false);
-                setEnableGraphSearch(settings.enableGraphSearch !== undefined ? settings.enableGraphSearch : false);
-                setGraphHops(settings.graphHops || 2);
-                setUseBruteForce(settings.useBruteForce || false);
-                setBruteForceTopK(settings.bruteForceTopK || 1);
-                setBruteForceThreshold(settings.bruteForceThreshold || 1.5);
+                setSearchStrategy(settings.searchStrategy ?? 'ann');
+                setTopK(settings.topK ?? 5);
+                setScoreThreshold(settings.scoreThreshold ?? 0.5);
+                setUseReranker(settings.useReranker ?? false);
+                setRerankerTopK(settings.rerankerTopK ?? 5);
+                setRerankerThreshold(settings.rerankerThreshold ?? 0.0);
+                setUseLLMReranker(settings.useLLMReranker ?? false);
+                setLlmChunkStrategy(settings.llmChunkStrategy ?? 'full');
+                setUseNER(settings.useNER ?? false);
+                setUseLLMKeywordExtraction(settings.useLLMKeywordExtraction ?? false);
+                setEnableGraphSearch(settings.enableGraphSearch ?? false);
+                setGraphHops(settings.graphHops ?? 2);
+                setUseBruteForce(settings.useBruteForce ?? false);
+                setBruteForceTopK(settings.bruteForceTopK ?? 1);
+                setBruteForceThreshold(settings.bruteForceThreshold ?? 1.5);
             }
         } catch (e) {
             console.error('Failed to load settings:', e);
@@ -245,7 +245,7 @@ export default function KnowledgeBaseDetail() {
                             </span>
                         </span>
 
-                        {kb.enable_graph_rag && (
+                        {kb.graph_backend && kb.graph_backend !== 'none' && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                 <span
                                     className="badge"
@@ -253,11 +253,11 @@ export default function KnowledgeBaseDetail() {
                                         fontSize: '0.8rem',
                                         padding: '0.25rem 0.75rem',
                                         fontWeight: 600,
-                                        backgroundColor: '#15803d',
+                                        backgroundColor: kb.graph_backend === 'ontology' ? '#1e40af' : '#166534',
                                         color: 'white'
                                     }}
                                 >
-                                    Graph
+                                    {kb.graph_backend === 'ontology' ? '🔗 Ontology' : '📊 Neo4j'}
                                 </span>
                                 <button
                                     onClick={() => setShowEntityModal(true)}
@@ -346,13 +346,14 @@ export default function KnowledgeBaseDetail() {
                         setGraphHops={setGraphHops}
                         useLLMKeywordExtraction={useLLMKeywordExtraction}
                         setUseLLMKeywordExtraction={setUseLLMKeywordExtraction}
-                        enableGraphRag={kb.enable_graph_rag}
+                        enableGraphRag={kb.graph_backend !== 'none'}
                         useBruteForce={useBruteForce}
                         setUseBruteForce={setUseBruteForce}
                         bruteForceTopK={bruteForceTopK}
                         setBruteForceTopK={setBruteForceTopK}
                         bruteForceThreshold={bruteForceThreshold}
                         setBruteForceThreshold={setBruteForceThreshold}
+                        graphBackend={kb.graph_backend}
                     />
 
                     {/* Bottom: Split View */}

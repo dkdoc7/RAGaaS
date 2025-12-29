@@ -27,23 +27,24 @@ mkdir -p "$PACKAGE_DIR/system"
 echo "Step 1: Downloading Python packages..."
 echo "-----------------------------------"
 
-# Python 패키지 다운로드 (wheel 형태)
+# Python 패키지 다운로드 (wheel 및 source 포함)
 cd "$PACKAGE_DIR/python"
 
-pip3 download -r ../../../backend/requirements.txt \
-    --only-binary=:all: \
-    --python-version=3.11 \
-    --platform=manylinux2014_x86_64 \
-    --platform=linux_x86_64 \
-    --abi=cp311 \
-    2>&1 | tee download.log
+# 절대 경로 계산 (상대 경로 문제 방지)
+REQUIREMENTS_PATH="$(cd "$SCRIPT_DIR/.." && pwd)/backend/requirements.txt"
 
-# Universal 패키지도 다운로드 (pure Python)
-pip3 download -r ../../../backend/requirements.txt \
-    --only-binary=:all: \
-    --python-version=3.11 \
-    --platform=any \
-    2>&1 | tee -a download.log
+echo "Checking requirements file at: $REQUIREMENTS_PATH"
+if [ ! -f "$REQUIREMENTS_PATH" ]; then
+    echo "Error: requirements.txt not found at $REQUIREMENTS_PATH"
+    echo "SCRIPT_DIR: $SCRIPT_DIR"
+    echo "Current dir: $(pwd)"
+    exit 1
+fi
+
+# 간단한 방법: 모든 패키지를 한 번에 다운로드 (wheel + source)
+# 폐쇄망 설치 시 pip가 자동으로 적절한 버전 선택
+echo "Downloading all packages (wheel and source)..."
+pip3 download -r "$REQUIREMENTS_PATH" -d . 2>&1 | tee download.log
 
 echo ""
 echo "Python packages downloaded: $(ls -1 *.whl 2>/dev/null | wc -l) wheel files"
@@ -54,9 +55,20 @@ echo "-----------------------------------"
 
 cd "$PACKAGE_DIR/nodejs"
 
+# 절대 경로 계산
+FRONTEND_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/frontend"
+
+echo "Current directory: $(pwd)"
+echo "Frontend directory: $FRONTEND_DIR"
+
+if [ ! -f "$FRONTEND_DIR/package.json" ]; then
+    echo "Error: package.json not found at $FRONTEND_DIR/package.json"
+    exit 1
+fi
+
 # package.json 복사
-cp ../../../frontend/package.json .
-cp ../../../frontend/package-lock.json .
+cp "$FRONTEND_DIR/package.json" .
+cp "$FRONTEND_DIR/package-lock.json" .
 
 # npm 패키지 다운로드
 npm ci --production=false

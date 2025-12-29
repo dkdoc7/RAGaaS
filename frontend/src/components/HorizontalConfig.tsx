@@ -26,6 +26,7 @@ interface HorizontalConfigProps {
     useLLMKeywordExtraction: boolean;
     setUseLLMKeywordExtraction: (value: boolean) => void;
     enableGraphRag: boolean;
+    graphBackend?: string;
     useBruteForce: boolean;
     setUseBruteForce: (value: boolean) => void;
     bruteForceTopK: number;
@@ -60,6 +61,7 @@ export default function HorizontalConfig({
     useLLMKeywordExtraction,
     setUseLLMKeywordExtraction,
     enableGraphRag,
+    graphBackend,
     useBruteForce,
     setUseBruteForce,
     bruteForceTopK,
@@ -67,13 +69,34 @@ export default function HorizontalConfig({
     bruteForceThreshold,
     setBruteForceThreshold
 }: HorizontalConfigProps) {
+
+    // Logic to handle visibility based on strategy
+    const isHybridGraph = searchStrategy === 'hybrid_graph' || searchStrategy === 'hybrid_ontology';
+
+    const showNER = !isHybridGraph;
+    const showBruteForce = searchStrategy === '2-stage';
+
+    const handleStrategyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const newVal = e.target.value;
+        setSearchStrategy(newVal);
+
+        if (newVal === '2-stage') {
+            setUseBruteForce(true);
+            setEnableGraphSearch(false);
+        } else if (newVal === 'hybrid_graph' || newVal === 'hybrid_ontology') {
+            setUseBruteForce(false);
+            setEnableGraphSearch(true);
+            setUseNER(false);
+        }
+    };
+
     return (
         <div className="card" style={{ padding: '1rem' }}>
             <h3 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.1rem', fontWeight: 600 }}>Search Configuration</h3>
 
-            <div style={{ display: 'grid', gridTemplateColumns: enableGraphRag ? '240px 260px 160px 240px 200px' : '240px 260px 160px 240px', gap: '3rem' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2rem', alignItems: 'flex-start', justifyContent: 'flex-start' }}>
                 {/* Column 1: Core Search Settings */}
-                <div>
+                <div style={{ width: '250px' }}>
                     <div style={{ marginBottom: '0.7rem' }}>
                         <label style={{ display: 'block', marginBottom: '3px', fontSize: '0.85rem', fontWeight: 600 }}>
                             Search Strategy
@@ -81,11 +104,19 @@ export default function HorizontalConfig({
                         <select
                             className="input"
                             value={searchStrategy}
-                            onChange={(e) => setSearchStrategy(e.target.value)}
+                            onChange={handleStrategyChange}
                             style={{ width: '100%' }}
                         >
                             <option value="ann">Vector Search (ANN)</option>
                             <option value="keyword">Keyword Search (BM25)</option>
+                            <option value="2-stage">2 Stage Search (+Brute Force)</option>
+
+                            {enableGraphRag && graphBackend === 'neo4j' && (
+                                <option value="hybrid_graph">Hybrid Search (+Graph)</option>
+                            )}
+                            {enableGraphRag && graphBackend === 'ontology' && (
+                                <option value="hybrid_ontology">Hybrid Search (+Ontology)</option>
+                            )}
                         </select>
                         {searchStrategy === 'keyword' && (
                             <div style={{ marginTop: '5px' }}>
@@ -138,7 +169,7 @@ export default function HorizontalConfig({
                 </div>
 
                 {/* Column 2: Reranker Settings */}
-                <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '2rem' }}>
+                <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '2rem', width: '290px', boxSizing: 'content-box' }}>
                     <div style={{ marginBottom: '0.5rem' }}>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem' }}>
                             <input
@@ -226,115 +257,87 @@ export default function HorizontalConfig({
                     </div>
                 </div>
 
-                {/* Column 3: NER Filter */}
-                <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '2rem' }}>
-                    <div style={{ marginBottom: '1.2rem' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem' }}>
-                            <input
-                                type="checkbox"
-                                checked={useNER}
-                                onChange={(e) => setUseNER(e.target.checked)}
-                            />
-                            NER Filter
-                        </label>
-                        <p style={{ margin: '0.25rem 0 0 1.5rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                            Penalizes results that don't contain entities found in the query
-                        </p>
-                    </div>
-                </div>
-
-                {/* Column 4: Brute Force */}
-                <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '2rem' }}>
-                    <div style={{ marginBottom: '0.7rem' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem' }}>
-                            <input
-                                type="radio"
-                                name="advancedMode"
-                                checked={useBruteForce}
-                                onClick={() => {
-                                    if (useBruteForce) {
-                                        setUseBruteForce(false);
-                                    } else {
-                                        setUseBruteForce(true);
-                                        setEnableGraphSearch(false);
-                                    }
-                                }}
-                                readOnly
-                            />
-                            Flat Index (L2)
-                        </label>
-                        <p style={{ margin: '0.25rem 0 0 1.5rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                            Exact nearest neighbor search using L2 distance (Lower is better)
-                        </p>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '1rem', opacity: useBruteForce ? 1 : 0.5, transition: 'opacity 0.2s' }}>
-                        <div style={{ flex: 1 }}>
-                            <label style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                <span>Top K</span>
-                                <span>{bruteForceTopK}</span>
-                            </label>
-                            <input
-                                type="range"
-                                min="1"
-                                max="3"
-                                value={bruteForceTopK}
-                                onChange={(e) => setBruteForceTopK(Number(e.target.value))}
-                                disabled={!useBruteForce}
-                                style={{ width: '100%', cursor: useBruteForce ? 'pointer' : 'not-allowed' }}
-                            />
-                        </div>
-
-                        <div style={{ flex: 1 }}>
-                            <label style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                <span>Threshold</span>
-                                <span>{bruteForceThreshold.toFixed(2)}</span>
-                            </label>
-                            <input
-                                type="range"
-                                min="0"
-                                max="2"
-                                step="0.1"
-                                value={bruteForceThreshold}
-                                onChange={(e) => setBruteForceThreshold(Number(e.target.value))}
-                                disabled={!useBruteForce}
-                                style={{ width: '100%', cursor: useBruteForce ? 'pointer' : 'not-allowed' }}
-                            />
-                        </div>
-                    </div>
-                </div>
-
-                {/* Column 4: Graph Search */}
-                {enableGraphRag && (
-                    <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '2rem' }}>
-                        <div>
+                {/* Column 3: NER Filter (Use placeholder to keep layout fixed) */}
+                {showNER && (
+                    <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '2rem', width: '200px', boxSizing: 'content-box' }}>
+                        <div style={{ marginBottom: '1.2rem' }}>
                             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem' }}>
                                 <input
-                                    type="radio"
-                                    name="advancedMode"
-                                    checked={enableGraphSearch}
-                                    onClick={() => {
-                                        if (enableGraphSearch) {
-                                            setEnableGraphSearch(false);
-                                        } else {
-                                            setEnableGraphSearch(true);
-                                            setUseBruteForce(false);
-                                        }
-                                    }}
-                                    readOnly
+                                    type="checkbox"
+                                    checked={useNER}
+                                    onChange={(e) => setUseNER(e.target.checked)}
                                 />
-                                Use Graph Search
+                                NER Filter
                             </label>
                             <p style={{ margin: '0.25rem 0 0 1.5rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                Augments retrieval with relationships from the knowledge graph
+                                Penalizes results that don't contain entities found in the query
                             </p>
+                        </div>
+                    </div>
+                )}
 
-                            <div style={{ marginTop: '0.7rem', paddingLeft: '1.5rem', opacity: enableGraphSearch ? 1 : 0.5, transition: 'opacity 0.2s' }}>
+                {/* Column 4: Brute Force & Graph Search */}
+                <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '2rem', width: '210px', boxSizing: 'content-box' }}>
+                    {showBruteForce && (
+                        <>
+                            <div style={{ marginBottom: '0.7rem' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, fontSize: '0.9rem' }}>
+                                    Flat Index (L2)
+                                </label>
+                                <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                    Exact nearest neighbor search using L2 distance (Lower is better)
+                                </p>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                        <span>Top K</span>
+                                        <span>{bruteForceTopK}</span>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="1"
+                                        max="3"
+                                        value={bruteForceTopK}
+                                        onChange={(e) => setBruteForceTopK(Number(e.target.value))}
+                                        style={{ width: '100%', cursor: 'pointer' }}
+                                    />
+                                </div>
+
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                        <span>Threshold</span>
+                                        <span>{bruteForceThreshold.toFixed(2)}</span>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="2"
+                                        step="0.1"
+                                        value={bruteForceThreshold}
+                                        onChange={(e) => setBruteForceThreshold(Number(e.target.value))}
+                                        style={{ width: '100%', cursor: 'pointer' }}
+                                    />
+                                </div>
+                            </div>
+                        </>
+                    )}
+
+                    {enableGraphRag && isHybridGraph && (
+                        <div>
+                            <h4 style={{ fontSize: '0.9rem', fontWeight: 600, margin: '0 0 0.5rem 0' }}>
+                                Graph Settings
+                            </h4>
+                            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.8rem', lineHeight: '1.3' }}>
+                                Expand search scope by traversing connected relationships.
+                            </p>
+                            <div style={{ paddingLeft: '0.5rem' }}>
                                 <label style={{ fontSize: '0.8rem', fontWeight: 500, display: 'flex', justifyContent: 'space-between', marginBottom: '3px', color: 'var(--text-secondary)' }}>
                                     <span>Graph Hops</span>
                                     <span style={{
                                         fontWeight: 600,
-                                        color: graphHops >= 4 ? 'tomato' : 'inherit'
+                                        color: graphHops >= 3 ? 'tomato' : 'inherit'
                                     }}>
                                         {graphHops}
                                     </span>
@@ -346,26 +349,27 @@ export default function HorizontalConfig({
                                     step="1"
                                     value={graphHops}
                                     onChange={(e) => setGraphHops(Number(e.target.value))}
-                                    disabled={!enableGraphSearch}
                                     style={{
                                         width: '100%',
                                         height: '6px',
                                         borderRadius: '3px',
                                         appearance: 'auto',
                                         background: 'linear-gradient(to right, #e2e8f0 0%, #e2e8f0 75%, tomato 75%, tomato 100%)',
-                                        accentColor: graphHops >= 4 ? 'tomato' : undefined,
-                                        cursor: enableGraphSearch ? 'pointer' : 'not-allowed'
+                                        accentColor: graphHops >= 3 ? 'tomato' : undefined,
+                                        cursor: 'pointer'
                                     }}
                                 />
                                 {graphHops >= 3 && (
-                                    <div style={{ fontSize: '0.7rem', color: 'tomato', marginTop: '0.25rem', lineHeight: '1.2' }}>
-                                        ⚠️ Performance may degrade
-                                    </div>
+                                    <p style={{ fontSize: '0.7rem', color: 'tomato', marginTop: '0.4rem', lineHeight: '1.2' }}>
+                                        ⚠️ High hop may slow down search.
+                                    </p>
                                 )}
                             </div>
                         </div>
-                    </div>
-                )}
+                    )}
+
+
+                </div>
             </div>
         </div>
     );

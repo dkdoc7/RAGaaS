@@ -76,10 +76,12 @@ export default function ChatInterface({
         onChunksReceived([]);
 
         try {
-            // Auto-switch to hybrid strategy when graph search is enabled
-            // When disabled, use selected strategy (but fallback to 'ann' if it's 'graph')
+            // Auto-switch to hybrid strategy when graph search is enabled or implied by strategy
             let effectiveStrategy = strategy;
-            if (enableGraphSearch) {
+
+            if (strategy === 'hybrid_graph' || strategy === 'hybrid_ontology') {
+                effectiveStrategy = 'hybrid';
+            } else if (enableGraphSearch) {
                 effectiveStrategy = 'hybrid';
             } else if (strategy === 'graph') {
                 // If graph search is off but strategy is 'graph', use 'ann' instead
@@ -87,7 +89,8 @@ export default function ChatInterface({
             }
 
             console.log('[ChatInterface] Sending request with:', {
-                strategy: effectiveStrategy,
+                original_strategy: strategy,
+                effective_strategy: effectiveStrategy,
                 enable_graph_search: enableGraphSearch,
                 graph_hops: graphHops
             });
