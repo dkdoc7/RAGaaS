@@ -62,13 +62,18 @@ class KeywordRetrievalStrategy(RetrievalStrategy):
         if not results:
             return []
 
-        # Tokenize (Simple whitespace tokenizer)
-        # For Korean, this is not perfect (agglutinative), but better than exact substring.
-        tokenized_corpus = [hit.get("content", "").split() for hit in results]
+        # Use shared tokenizer utility - choose mode based on use_multi_pos
+        from app.services.retrieval.tokenizer import korean_tokenize
+        use_multi_pos = kwargs.get("use_multi_pos", False)  # Default False for keyword-only search
+        tokenize_mode = 'extended' if use_multi_pos else 'strict'
+
+        # Tokenize Corpus
+        tokenized_corpus = [korean_tokenize(hit.get("content", ""), mode=tokenize_mode, include_original_words=False, min_length=1) for hit in results]
         
         bm25 = BM25Okapi(tokenized_corpus)
         
-        tokenized_query = search_query.split() # Use extracted keywords
+        # Tokenize Query
+        tokenized_query = korean_tokenize(search_query, mode=tokenize_mode, include_original_words=False, min_length=1)
         doc_scores = bm25.get_scores(tokenized_query)
         
         # Combine results with scores
@@ -88,6 +93,12 @@ class KeywordRetrievalStrategy(RetrievalStrategy):
         
         retrieved.sort(key=lambda x: x["score"], reverse=True)
         final_res = retrieved[:top_k]
+        
+        # Attach extracted keywords to ALL results for UI display
+        # This ensures the keywords are available even if some chunks are filtered/reranked
+        for result in final_res:
+            if "extracted_keywords" not in result["metadata"]:
+                result["metadata"]["extracted_keywords"] = tokenized_query
         
         with open("backend_debug.log", "a") as f:
             f.write(f"Keyword Search End. Found: {len(final_res)}\n")

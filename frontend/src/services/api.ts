@@ -9,7 +9,16 @@ const api = axios.create({
 
 export const kbApi = {
     list: () => api.get('/knowledge-bases/'),
-    create: (data: { name: string; description: string; chunking_strategy: string; chunking_config: any; metric_type?: string; enable_graph_rag?: boolean }) => api.post('/knowledge-bases/', data),
+    create: (data: { name: string; description: string; chunking_strategy: string; chunking_config: any; metric_type?: string; graph_backend?: 'none' | 'ontology' | 'neo4j'; ontology_schema?: string }) => api.post('/knowledge-bases/', data),
+    extractSchema: (file: File) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        return api.post('/knowledge-bases/extract-schema', formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
+        });
+    },
     get: (id: string) => api.get(`/knowledge-bases/${id}`),
     delete: (id: string) => api.delete(`/knowledge-bases/${id}`),
     getEntities: (id: string) => api.get(`/knowledge-bases/${id}/entities`),
@@ -61,6 +70,8 @@ export const retrievalApi = {
         use_brute_force?: boolean;
         brute_force_top_k?: number;
         brute_force_threshold?: number;
+        enable_inverse_search?: boolean;
+        inverse_extraction_mode?: 'always' | 'auto';
     }) => api.post(`/knowledge-bases/${kbId}/retrieve`, data),
     chat: (kbId: string, data: {
         query: string;
@@ -73,12 +84,24 @@ export const retrievalApi = {
         use_llm_reranker?: boolean;
         llm_chunk_strategy?: string;
         use_ner?: boolean;
+        // BM25 Settings
+        bm25_top_k?: number;
         use_llm_keyword_extraction?: boolean;
+        use_multi_pos?: boolean;
+        use_parallel_search?: boolean;
+        // ANN Settings
+        ann_top_k?: number;
+        ann_threshold?: number;
+        // Graph Settings
         enable_graph_search?: boolean;
         graph_hops?: number;
+        // 2-Stage Settings
         use_brute_force?: boolean;
         brute_force_top_k?: number;
         brute_force_threshold?: number;
+        // Inverse Search
+        enable_inverse_search?: boolean;
+        inverse_extraction_mode?: 'always' | 'auto';
     }) => api.post(`/knowledge-bases/${kbId}/chat`, data),
 };
 

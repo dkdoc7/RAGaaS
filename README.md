@@ -43,7 +43,7 @@ Milvus 기반의 다수의 RAG (Retrieval-Augmented Generation) 지식 베이스
 - **ANN (Vector Search)**: 고속 벡터 유사도 검색
 - **Keyword Search**: BM25 기반 키워드 매칭 검색
 - **2-Stage Retrieval**: ANN 후보 검색 + Cross-Encoder 정밀 재평가 (자동으로 **L2 Flat Index** 검증 포함)
-- **Hybrid (ANN + BM25)**: 벡터 검색과 키워드 검색을 결합한 최고 정확도 검색
+- **Hybrid (ANN + BM25)**: 벡터 검색과 키워드 검색을 결합 (Sequential/Parallel 모드 지원, 사용자 사전 `user_dic.txt` 지원)
 - **Hybrid (+Graph / +Ontology)**: 지식 그래프의 관계를 탐색하여 숨겨진 연관 문서를 발견하는 고급 검색 (Graph Mode 활성화 시)
 
 ### 고급 검색 기능
