@@ -1,0 +1,37 @@
+
+# Project Context
+This is a RAG (Retrieval-Augmented Generation) Management System built with:
+- **Backend**: FastAPI (Python 3.11+), SQLAlchemy (Async), Milvus (Vector DB), Neo4j/Fuseki (Graph DB)
+- **Frontend**: React (Vite), TypeScript
+- **Infrastructure**: Docker Compose
+
+# General Rules
+- Always use absolute paths for file operations.
+- Prioritize modularity and separation of concerns.
+- When existing functionality is modified, ensure backward compatibility or explicitly state breaking changes.
+- Check for existing dependencies before adding new ones.
+
+# Backend (Python/FastAPI) Rules
+- **Type Hinting**: Use strict type hints (`typing` module, Pydantic models). Avoid `Any` if possible.
+- **Async/Await**: Use `async def` for all I/O-bound operations (DB, API calls).
+- **Pydantic**: Use Pydantic `BaseModel` for data validation and schemas.
+- **Error Handling**: Use `try-except` blocks for risky operations and log errors using the application logger, not `print()`.
+- **Database**: 
+  - Use SQLAlchemy async sessions (`AsyncSession`).
+  - For Graph queries (Cypher/SPARQL), ensure parameters are properly escaped or parameterized to prevent injection.
+  - **Graph RAG Structure**: Implementations for Graph RAG backends (Neo4j, Fuseki) are located in `backend/app/services/retrieval/graph_backends/`. Use the Factory pattern for instantiation.
+
+# Frontend (React/TypeScript) Rules
+- **Components**: Use strict Functional Components with TypeScript interfaces for Props.
+- **State Management**: Use React Hooks (`useState`, `useEffect`, `useCallback`) properly. Avoid class components.
+- **Typing**: Explicitly define types/interfaces. Do not use `any`; use `unknown` if type is truly ambiguous.
+- **Styling**: Currently using inline styles or CSS modules. Maintain consistency with existing style patterns.
+- **File Structure**: Keep components in `src/components`, pages in `src/pages`, and services in `src/services`.
+
+# Documentation
+- Add docstrings to complex functions and classes (Google Style or similar).
+- Update `Specification.md` and `README.md` when architectural changes or new features are introduced.
+
+# Docker
+- When modifying `docker-compose.yml`, ensure port mappings and volume definitions are correct.
+- If dependencies change, remind the user to rebuild images (`docker-compose up -d --build`).

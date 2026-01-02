@@ -71,4 +71,23 @@ class ChunkingService:
         docs = semantic_splitter.create_documents([text])
         return [doc.page_content for doc in docs]
 
+    def split_into_sections(self, text: str, section_size: int = 6000, overlap: int = 500) -> List[str]:
+        """
+        Split text into larger sections for graph extraction.
+        These sections provide broader context for entity/relation extraction.
+        
+        Args:
+            section_size: Size of each section in characters (default: 6000, ~1500 tokens)
+            overlap: Overlap between sections to preserve cross-boundary context
+        
+        Returns:
+            List of section texts
+        """
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=section_size,
+            chunk_overlap=overlap,
+            separators=["\n\n", "\n", ". ", " ", ""]
+        )
+        return splitter.split_text(text)
+
 chunking_service = ChunkingService()

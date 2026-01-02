@@ -45,6 +45,7 @@ export default function KnowledgeBaseDetail() {
     const [inverseExtractionMode, setInverseExtractionMode] = useState<'always' | 'auto'>('auto');
     const [useParallelSearch, setUseParallelSearch] = useState<boolean>(false);
     const [enableInverseSearch, setEnableInverseSearch] = useState(false);
+    const [useRelationFilter, setUseRelationFilter] = useState(true);
 
     // Brute Force State (for 2-stage)
     const [bruteForceTopK, setBruteForceTopK] = useState(1);
@@ -134,6 +135,7 @@ export default function KnowledgeBaseDetail() {
                 setBruteForceThreshold(settings.bruteForceThreshold ?? 1.5);
                 setEnableInverseSearch(settings.enableInverseSearch ?? false);
                 setInverseExtractionMode(settings.inverseExtractionMode ?? 'auto');
+                setUseRelationFilter(settings.useRelationFilter ?? true);
             }
         } catch (e) {
             console.error('Failed to load settings:', e);
@@ -160,7 +162,8 @@ export default function KnowledgeBaseDetail() {
             bruteForceThreshold,
             enableInverseSearch,
             inverseExtractionMode,
-            useParallelSearch
+            useParallelSearch,
+            useRelationFilter
         };
         localStorage.setItem('retrievalSettings', JSON.stringify(settings));
     };
@@ -186,7 +189,8 @@ export default function KnowledgeBaseDetail() {
         bruteForceThreshold,
         enableInverseSearch,
         inverseExtractionMode,
-        useParallelSearch
+        useParallelSearch,
+        useRelationFilter
     ]);
 
     const loadKB = async () => {
@@ -284,7 +288,7 @@ export default function KnowledgeBaseDetail() {
                                         color: 'white'
                                     }}
                                 >
-                                    {kb.graph_backend === 'ontology' ? 'Ontology' : 'Neo4j'}
+                                    {kb.graph_backend === 'ontology' ? 'Ontology' : 'Graph'}
                                 </span>
                                 <button
                                     onClick={() => setShowEntityModal(true)}
@@ -390,6 +394,8 @@ export default function KnowledgeBaseDetail() {
                         setInverseExtractionMode={setInverseExtractionMode}
                         chunkingStrategy={kb.chunking_strategy}
                         graphBackend={kb.graph_backend}
+                        useRelationFilter={useRelationFilter}
+                        setUseRelationFilter={setUseRelationFilter}
                     />
 
                     {/* Bottom: Split View */}
@@ -417,6 +423,7 @@ export default function KnowledgeBaseDetail() {
                                 enableInverseSearch={enableInverseSearch}
                                 inverseExtractionMode={inverseExtractionMode}
                                 useParallelSearch={useParallelSearch}
+                                useRelationFilter={useRelationFilter}
                                 onChunksReceived={setRetrievedChunks}
                             />
                         </div>

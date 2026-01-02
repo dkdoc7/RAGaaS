@@ -13,6 +13,11 @@ class Settings(BaseSettings):
 
     # Fuseki
     FUSEKI_URL: str = "http://localhost:3030"
+
+    # Neo4j
+    NEO4J_URI: str = "bolt://localhost:7687"
+    NEO4J_USER: str = "neo4j"
+    NEO4J_PASSWORD: str = "password"
     
     
     # OpenAI
