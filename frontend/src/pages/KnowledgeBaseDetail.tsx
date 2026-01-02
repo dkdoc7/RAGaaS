@@ -21,20 +21,32 @@ export default function KnowledgeBaseDetail() {
 
     // Search Configuration State
     const [searchStrategy, setSearchStrategy] = useState('ann');
-    const [topK, setTopK] = useState(5);
-    const [scoreThreshold, setScoreThreshold] = useState(0.5);
+
+    // BM25 Settings
+    const [bm25TopK, setBm25TopK] = useState(10);
+    const [bm25Tokenizer, setBm25Tokenizer] = useState<'llm' | 'morpho'>('morpho');
+    const [useMultiPOS, setUseMultiPOS] = useState(true);
+
+    // ANN Settings
+    const [annTopK, setAnnTopK] = useState(5);
+    const [annThreshold, setAnnThreshold] = useState(0.5);
+
+    // Reranker Settings
     const [useReranker, setUseReranker] = useState(false);
     const [rerankerTopK, setRerankerTopK] = useState(5);
     const [rerankerThreshold, setRerankerThreshold] = useState(0.0);
     const [useLLMReranker, setUseLLMReranker] = useState(false);
     const [llmChunkStrategy, setLlmChunkStrategy] = useState('full');
+
+    // NER and other filters
     const [useNER, setUseNER] = useState(false);
-    const [useLLMKeywordExtraction, setUseLLMKeywordExtraction] = useState(false);
     const [enableGraphSearch, setEnableGraphSearch] = useState(false);
     const [graphHops, setGraphHops] = useState(2);
+    const [inverseExtractionMode, setInverseExtractionMode] = useState<'always' | 'auto'>('auto');
+    const [useParallelSearch, setUseParallelSearch] = useState<boolean>(false);
+    const [enableInverseSearch, setEnableInverseSearch] = useState(false);
 
-    // Brute Force State
-    const [useBruteForce, setUseBruteForce] = useState(false);
+    // Brute Force State (for 2-stage)
     const [bruteForceTopK, setBruteForceTopK] = useState(1);
     const [bruteForceThreshold, setBruteForceThreshold] = useState(1.5);
 
@@ -101,20 +113,27 @@ export default function KnowledgeBaseDetail() {
             if (saved) {
                 const settings = JSON.parse(saved);
                 setSearchStrategy(settings.searchStrategy ?? 'ann');
-                setTopK(settings.topK ?? 5);
-                setScoreThreshold(settings.scoreThreshold ?? 0.5);
+                // BM25 Settings
+                setBm25TopK(settings.bm25TopK ?? 10);
+                setBm25Tokenizer(settings.bm25Tokenizer ?? 'morpho');
+                setUseMultiPOS(settings.useMultiPOS ?? true);
+                // ANN Settings
+                setAnnTopK(settings.annTopK ?? settings.topK ?? 5);
+                setAnnThreshold(settings.annThreshold ?? settings.scoreThreshold ?? 0.5);
+                // Reranker
                 setUseReranker(settings.useReranker ?? false);
                 setRerankerTopK(settings.rerankerTopK ?? 5);
                 setRerankerThreshold(settings.rerankerThreshold ?? 0.0);
                 setUseLLMReranker(settings.useLLMReranker ?? false);
                 setLlmChunkStrategy(settings.llmChunkStrategy ?? 'full');
+                // Other
                 setUseNER(settings.useNER ?? false);
-                setUseLLMKeywordExtraction(settings.useLLMKeywordExtraction ?? false);
                 setEnableGraphSearch(settings.enableGraphSearch ?? false);
                 setGraphHops(settings.graphHops ?? 2);
-                setUseBruteForce(settings.useBruteForce ?? false);
                 setBruteForceTopK(settings.bruteForceTopK ?? 1);
                 setBruteForceThreshold(settings.bruteForceThreshold ?? 1.5);
+                setEnableInverseSearch(settings.enableInverseSearch ?? false);
+                setInverseExtractionMode(settings.inverseExtractionMode ?? 'auto');
             }
         } catch (e) {
             console.error('Failed to load settings:', e);
@@ -124,20 +143,24 @@ export default function KnowledgeBaseDetail() {
     const saveSettings = () => {
         const settings = {
             searchStrategy,
-            topK,
-            scoreThreshold,
+            bm25TopK,
+            bm25Tokenizer,
+            useMultiPOS,
+            annTopK,
+            annThreshold,
             useReranker,
             rerankerTopK,
             rerankerThreshold,
             useLLMReranker,
             llmChunkStrategy,
             useNER,
-            useLLMKeywordExtraction,
             enableGraphSearch,
             graphHops,
-            useBruteForce,
             bruteForceTopK,
-            bruteForceThreshold
+            bruteForceThreshold,
+            enableInverseSearch,
+            inverseExtractionMode,
+            useParallelSearch
         };
         localStorage.setItem('retrievalSettings', JSON.stringify(settings));
     };
@@ -146,20 +169,24 @@ export default function KnowledgeBaseDetail() {
         saveSettings();
     }, [
         searchStrategy,
-        topK,
-        scoreThreshold,
+        bm25TopK,
+        bm25Tokenizer,
+        useMultiPOS,
+        annTopK,
+        annThreshold,
         useReranker,
         rerankerTopK,
         rerankerThreshold,
         useLLMReranker,
         llmChunkStrategy,
         useNER,
-        useLLMKeywordExtraction,
         enableGraphSearch,
         graphHops,
-        useBruteForce,
         bruteForceTopK,
-        bruteForceThreshold
+        bruteForceThreshold,
+        enableInverseSearch,
+        inverseExtractionMode,
+        useParallelSearch
     ]);
 
     const loadKB = async () => {
@@ -314,6 +341,7 @@ export default function KnowledgeBaseDetail() {
                         onRefresh={loadDocs}
                         onDeleteDocument={(docId) => setDeleteDocId(docId)}
                         onViewChunks={handleViewChunks}
+                        isOntology={kb.graph_backend === 'ontology'}
                     />
                 </div>
             )}
@@ -324,10 +352,18 @@ export default function KnowledgeBaseDetail() {
                     <HorizontalConfig
                         searchStrategy={searchStrategy}
                         setSearchStrategy={setSearchStrategy}
-                        topK={topK}
-                        setTopK={setTopK}
-                        scoreThreshold={scoreThreshold}
-                        setScoreThreshold={setScoreThreshold}
+                        bm25TopK={bm25TopK}
+                        setBm25TopK={setBm25TopK}
+                        bm25Tokenizer={bm25Tokenizer}
+                        setBm25Tokenizer={setBm25Tokenizer}
+                        useMultiPOS={useMultiPOS}
+                        setUseMultiPOS={setUseMultiPOS}
+                        annTopK={annTopK}
+                        setAnnTopK={setAnnTopK}
+                        annThreshold={annThreshold}
+                        setAnnThreshold={setAnnThreshold}
+                        useParallelSearch={useParallelSearch}
+                        setUseParallelSearch={setUseParallelSearch}
                         useReranker={useReranker}
                         setUseReranker={setUseReranker}
                         rerankerTopK={rerankerTopK}
@@ -344,15 +380,15 @@ export default function KnowledgeBaseDetail() {
                         setEnableGraphSearch={setEnableGraphSearch}
                         graphHops={graphHops}
                         setGraphHops={setGraphHops}
-                        useLLMKeywordExtraction={useLLMKeywordExtraction}
-                        setUseLLMKeywordExtraction={setUseLLMKeywordExtraction}
-                        enableGraphRag={kb.graph_backend !== 'none'}
-                        useBruteForce={useBruteForce}
-                        setUseBruteForce={setUseBruteForce}
                         bruteForceTopK={bruteForceTopK}
                         setBruteForceTopK={setBruteForceTopK}
                         bruteForceThreshold={bruteForceThreshold}
                         setBruteForceThreshold={setBruteForceThreshold}
+                        enableInverseSearch={enableInverseSearch}
+                        setEnableInverseSearch={setEnableInverseSearch}
+                        inverseExtractionMode={inverseExtractionMode}
+                        setInverseExtractionMode={setInverseExtractionMode}
+                        chunkingStrategy={kb.chunking_strategy}
                         graphBackend={kb.graph_backend}
                     />
 
@@ -363,20 +399,24 @@ export default function KnowledgeBaseDetail() {
                             <ChatInterface
                                 kbId={id!}
                                 strategy={searchStrategy}
-                                topK={topK}
-                                scoreThreshold={scoreThreshold}
+                                bm25TopK={bm25TopK}
+                                bm25Tokenizer={bm25Tokenizer}
+                                useMultiPOS={useMultiPOS}
+                                annTopK={annTopK}
+                                annThreshold={annThreshold}
                                 useReranker={useReranker}
                                 rerankerTopK={rerankerTopK}
                                 rerankerThreshold={rerankerThreshold}
                                 useLLMReranker={useLLMReranker}
                                 llmChunkStrategy={llmChunkStrategy}
                                 useNER={useNER}
-                                useLLMKeywordExtraction={useLLMKeywordExtraction}
                                 enableGraphSearch={enableGraphSearch}
                                 graphHops={graphHops}
-                                useBruteForce={useBruteForce}
                                 bruteForceTopK={bruteForceTopK}
                                 bruteForceThreshold={bruteForceThreshold}
+                                enableInverseSearch={enableInverseSearch}
+                                inverseExtractionMode={inverseExtractionMode}
+                                useParallelSearch={useParallelSearch}
                                 onChunksReceived={setRetrievedChunks}
                             />
                         </div>

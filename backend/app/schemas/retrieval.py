@@ -17,6 +17,9 @@ class RetrievalRequest(BaseModel):
     # Filters
     use_ner: bool = False
     use_llm_keyword_extraction: bool = False
+    use_multi_pos: bool = True  # Multi-POS tokenization (nouns + verbs + adjectives)
+    bm25_top_k: int = 50  # Candidates for Hybrid 2nd stage
+    use_parallel_search: bool = False # If True, run BM25 and ANN in parallel and fuse. If False, run sequential.
     
     # Graph Search
     enable_graph_search: bool = False
@@ -26,10 +29,7 @@ class RetrievalRequest(BaseModel):
     use_brute_force: bool = False
     brute_force_top_k: int = 1
     brute_force_threshold: float = 1.5
-    
-    # Graph RAG
-    enable_graph_search: bool = False
-    graph_hops: int = 1
+
 
 class RetrievalResult(BaseModel):
     chunk_id: str

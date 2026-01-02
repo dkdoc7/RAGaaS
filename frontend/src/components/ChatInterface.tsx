@@ -6,45 +6,62 @@ interface Message {
     role: 'user' | 'assistant';
     content: string;
     chunks?: any[];
+    execution_time?: number;
+    strategy?: string;
 }
 
 interface ChatInterfaceProps {
     kbId: string;
     strategy: string;
-    topK: number;
-    scoreThreshold: number;
+    // BM25 Settings
+    bm25TopK: number;
+    bm25Tokenizer: 'llm' | 'morpho';
+    useMultiPOS: boolean;
+    // ANN Settings
+    annTopK: number;
+    annThreshold: number;
+    useParallelSearch?: boolean;
+    // Reranker
     useReranker: boolean;
     rerankerTopK: number;
     rerankerThreshold: number;
     useLLMReranker: boolean;
     llmChunkStrategy: string;
+    // NER
     useNER: boolean;
-    useLLMKeywordExtraction?: boolean;
+    // Graph
     enableGraphSearch: boolean;
     graphHops: number;
-    useBruteForce?: boolean;
+    // 2-Stage
     bruteForceTopK?: number;
     bruteForceThreshold?: number;
+    // Inverse
+    enableInverseSearch?: boolean;
+    inverseExtractionMode?: 'always' | 'auto';
     onChunksReceived: (chunks: any[]) => void;
 }
 
 export default function ChatInterface({
     kbId,
     strategy,
-    topK,
-    scoreThreshold,
+    bm25TopK,
+    bm25Tokenizer,
+    useMultiPOS,
+    annTopK,
+    annThreshold,
+    useParallelSearch,
     useReranker,
     rerankerTopK,
     rerankerThreshold,
     useLLMReranker,
     llmChunkStrategy,
     useNER,
-    useLLMKeywordExtraction,
     enableGraphSearch,
     graphHops,
-    useBruteForce,
     bruteForceTopK,
     bruteForceThreshold,
+    enableInverseSearch,
+    inverseExtractionMode,
     onChunksReceived
 }: ChatInterfaceProps) {
     const [messages, setMessages] = useState<Message[]>([]);
@@ -92,13 +109,21 @@ export default function ChatInterface({
                 original_strategy: strategy,
                 effective_strategy: effectiveStrategy,
                 enable_graph_search: enableGraphSearch,
-                graph_hops: graphHops
+                graph_hops: graphHops,
+                enable_inverse_search: enableInverseSearch,
+                inverse_extraction_mode: inverseExtractionMode
             });
+
+            // Determine top_k based on strategy
+            // For Hybrid (BM25 -> ANN), final top_k is annTopK
+            const effectiveTopK = (strategy === 'hybrid' || strategy === 'ann' || strategy === '2-stage') ? annTopK : bm25TopK;
+
+            const is2Stage = strategy === '2-stage';
 
             const response = await retrievalApi.chat(kbId, {
                 query: input,
-                top_k: topK,
-                score_threshold: scoreThreshold,
+                top_k: effectiveTopK,
+                score_threshold: annThreshold,
                 strategy: effectiveStrategy,
                 use_reranker: useReranker,
                 reranker_top_k: rerankerTopK,
@@ -106,18 +131,38 @@ export default function ChatInterface({
                 use_llm_reranker: useLLMReranker,
                 llm_chunk_strategy: llmChunkStrategy,
                 use_ner: useNER,
-                use_llm_keyword_extraction: useLLMKeywordExtraction,
+                // BM25 Settings
+                bm25_top_k: bm25TopK,
+                use_llm_keyword_extraction: bm25Tokenizer === 'llm',
+                use_multi_pos: useMultiPOS,
+                use_parallel_search: useParallelSearch,
+                // ANN Settings
+                ann_top_k: annTopK,
+                ann_threshold: annThreshold,
+                // Graph Settings
                 enable_graph_search: enableGraphSearch,
                 graph_hops: graphHops,
-                use_brute_force: useBruteForce,
+                // 2-Stage Settings
+                use_brute_force: is2Stage,
                 brute_force_top_k: bruteForceTopK,
-                brute_force_threshold: bruteForceThreshold
+                brute_force_threshold: bruteForceThreshold,
+                enable_inverse_search: enableInverseSearch,
+                inverse_extraction_mode: inverseExtractionMode
             });
+
+            // Debug: Log the raw API response to verify data integrity
+            console.log('[ChatInterface] Raw API response chunks:', response.data.chunks);
+            if (response.data.chunks && response.data.chunks.length > 0) {
+                console.log('[ChatInterface] First chunk metadata:', response.data.chunks[0].metadata);
+                console.log('[ChatInterface] First chunk extracted_keywords:', response.data.chunks[0].metadata?.extracted_keywords);
+            }
 
             const assistantMessage: Message = {
                 role: 'assistant',
                 content: response.data.answer,
-                chunks: response.data.chunks
+                chunks: response.data.chunks,
+                execution_time: response.data.execution_time,
+                strategy: response.data.strategy
             };
 
             setMessages(prev => [...prev, assistantMessage]);
@@ -197,6 +242,25 @@ export default function ChatInterface({
                             }}
                         >
                             {msg.content}
+                            {msg.role === 'assistant' && (msg.execution_time !== undefined || msg.strategy) && (
+                                <div style={{
+                                    marginTop: '0.5rem',
+                                    paddingTop: '0.5rem',
+                                    borderTop: '1px solid #eee',
+                                    fontSize: '0.7rem',
+                                    color: '#9ca3af',
+                                    display: 'flex',
+                                    gap: '1rem',
+                                    alignItems: 'center'
+                                }}>
+                                    {msg.execution_time !== undefined && (
+                                        <span title="Execution Time">⏱️ {msg.execution_time.toFixed(2)}s</span>
+                                    )}
+                                    {msg.strategy && (
+                                        <span title="Search Strategy">⚙️ {msg.strategy}</span>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                 ))}

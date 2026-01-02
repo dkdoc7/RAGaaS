@@ -8,6 +8,7 @@ from typing import List
 from pydantic import BaseModel
 import openai
 import os
+import time
 
 router = APIRouter()
 
@@ -23,6 +24,9 @@ class ChatRequest(BaseModel):
     llm_chunk_strategy: str = "full"
     use_ner: bool = False
     use_llm_keyword_extraction: bool = False
+    use_multi_pos: bool = True  # Multi-POS tokenization
+    bm25_top_k: int = 50
+    use_parallel_search: bool = False
     enable_graph_search: bool = False
     graph_hops: int = 1
     use_brute_force: bool = False
@@ -32,6 +36,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     chunks: List[RetrievalResult]
+    execution_time: float = 0.0
+    strategy: str = "unknown"
 
 @router.post("/{kb_id}/retrieve", response_model=List[RetrievalResult])
 async def retrieve_chunks(
@@ -62,7 +68,10 @@ async def retrieve_chunks(
         score_threshold=request.score_threshold,
         enable_graph_search=request.enable_graph_search,
         graph_hops=request.graph_hops,
-        use_llm_keyword_extraction=request.use_llm_keyword_extraction
+        use_llm_keyword_extraction=request.use_llm_keyword_extraction,
+        use_multi_pos=request.use_multi_pos,
+        bm25_top_k=request.bm25_top_k,
+        use_parallel_search=request.use_parallel_search
     )
     
     # 2. Reranking (Cross-Encoder)
@@ -137,7 +146,6 @@ async def retrieve_chunks(
         # 4. Sort and Top K (DESCENDING for Similarity)
         reranked.sort(key=lambda x: x['score'], reverse=True)
         results = reranked[:request.brute_force_top_k]
-        results = reranked[:request.brute_force_top_k]
         
     return results
 
@@ -147,6 +155,7 @@ async def chat_with_kb(
     request: ChatRequest,
     db: AsyncSession = Depends(get_db)
 ):
+    start_time = time.time()
     print(f"[DEBUG] Chat Request: brute={request.use_brute_force} bf_top_k={request.brute_force_top_k} bf_thresh={request.brute_force_threshold}")
     """
     Chat endpoint that retrieves relevant chunks and generates an LLM response
@@ -170,7 +179,10 @@ async def chat_with_kb(
         score_threshold=request.score_threshold,
         enable_graph_search=request.enable_graph_search,
         graph_hops=request.graph_hops,
-        use_llm_keyword_extraction=request.use_llm_keyword_extraction
+        use_llm_keyword_extraction=request.use_llm_keyword_extraction,
+        use_multi_pos=request.use_multi_pos,
+        bm25_top_k=request.bm25_top_k,
+        use_parallel_search=request.use_parallel_search
     )
     
     with open("backend_debug.log", "a") as f:
@@ -270,10 +282,31 @@ async def chat_with_kb(
         )
     
     # Build context from top chunks
-    context = "\n\n".join([
+    context_parts = []
+    
+    # Check for graph metadata in the first result (where it's attached)
+    if results and results[0].get("graph_metadata"):
+        metadata = results[0]["graph_metadata"]
+        triples = metadata.get("triples", [])
+        if triples:
+            # Check type of triples
+            # Graph logic might return strings like "(s) -[p]-> (o)" OR dicts
+            formatted_triples = []
+            for t in triples:
+                if isinstance(t, str):
+                    formatted_triples.append(f"- {t}")
+                elif isinstance(t, dict):
+                    formatted_triples.append(f"- {t.get('subject', '?')} {t.get('predicate', '?')} {t.get('object', '?')}")
+            
+            triples_text = "\n".join(formatted_triples)
+            context_parts.append(f"### Graph Relationships (Derived from Knowledge Graph):\n{triples_text}\n")
+            
+    context_parts.extend([
         f"[Chunk {i+1}] {chunk['content']}"
-        for i, chunk in enumerate(results[:5])  # Use top 5 chunks for context
+        for i, chunk in enumerate(results[:10])  # Use top 10 chunks for context
     ])
+    
+    context = "\n\n".join(context_parts)
     
     # Call OpenAI API
     openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -289,12 +322,14 @@ async def chat_with_kb(
                 {
                     "role": "system",
                     "content": "You are a helpful assistant that answers questions based on the provided context. "
+                               "If multiple entities or items match the question, LIST ALL OF THEM. "
+                               "When asked about 'participants' or 'users' of a skill/item, ALSO INCLUDE its 'creators', 'masters', or 'teachers' mentioned in the context. "
                                "If the context doesn't contain enough information to answer the question, say so. "
                                "Always cite which chunks you used (e.g., 'According to Chunk 1...')."
                 },
                 {
                     "role": "user",
-                    "content": f"Context:\n{context}\n\nQuestion: {request.query}\n\nPlease provide a comprehensive answer based on the context above."
+                    "content": f"Context:\n{context}\n\nQuestion: {request.query}\n\nPlease provide a comprehensive answer based on the context above. If there are multiple answers, please list them all."
                 }
             ],
             temperature=0.3,
@@ -308,5 +343,7 @@ async def chat_with_kb(
     
     return ChatResponse(
         answer=answer,
-        chunks=results
+        chunks=results,
+        execution_time=time.time() - start_time,
+        strategy=f"{request.strategy}{' (+Graph)' if request.enable_graph_search else ''}"
     )
