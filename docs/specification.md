@@ -239,6 +239,7 @@ CREATE (e)-[:HAS_SOURCE {chunk_id: 'chunk_123'}]->(s:Source {id: 'chunk_123'})
 - `graph_backend`: KB 생성 시 선택 (enum: "none", "ontology", "neo4j", 기본: "none")
 - `enable_graph_search`: 검색 시 사용 (boolean, 기본: false)
 - `graph_hops`: 탐색 깊이 (1-5, 기본: 2)
+- `use_relation_filter`: (Neo4j 전용) 관계 키워드 필터링 사용 여부 (boolean, 기본: true). True일 경우 관계 키워드(예: "스승", "제자")를 포함하여 더 정밀한 검색, False일 경우 관계 검색 없이 엔티티 연결성만으로 더 넓은 검색 수행.
 
 #### 3.8.6 사용 사례
 
@@ -288,7 +289,8 @@ CREATE (e)-[:HAS_SOURCE {chunk_id: 'chunk_123'}]->(s:Source {id: 'chunk_123'})
           "score_threshold": 0.5, 
           "strategy": "ann" | "keyword" | "2-stage" | "hybrid",
           "enable_graph_search": false,
-          "graph_hops": 1
+          "graph_hops": 1,
+          "use_relation_filter": true
         }
         ```
     -   Response: 

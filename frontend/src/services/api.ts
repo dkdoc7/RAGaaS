@@ -102,6 +102,8 @@ export const retrievalApi = {
         // Inverse Search
         enable_inverse_search?: boolean;
         inverse_extraction_mode?: 'always' | 'auto';
+        // Graph Relation Filter
+        use_relation_filter?: boolean;
     }) => api.post(`/knowledge-bases/${kbId}/chat`, data),
 };
 

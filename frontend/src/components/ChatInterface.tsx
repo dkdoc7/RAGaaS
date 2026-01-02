@@ -38,6 +38,8 @@ interface ChatInterfaceProps {
     // Inverse
     enableInverseSearch?: boolean;
     inverseExtractionMode?: 'always' | 'auto';
+    // Graph Relation Filter (Neo4j)
+    useRelationFilter?: boolean;
     onChunksReceived: (chunks: any[]) => void;
 }
 
@@ -62,6 +64,7 @@ export default function ChatInterface({
     bruteForceThreshold,
     enableInverseSearch,
     inverseExtractionMode,
+    useRelationFilter,
     onChunksReceived
 }: ChatInterfaceProps) {
     const [messages, setMessages] = useState<Message[]>([]);
@@ -147,7 +150,8 @@ export default function ChatInterface({
                 brute_force_top_k: bruteForceTopK,
                 brute_force_threshold: bruteForceThreshold,
                 enable_inverse_search: enableInverseSearch,
-                inverse_extraction_mode: inverseExtractionMode
+                inverse_extraction_mode: inverseExtractionMode,
+                use_relation_filter: useRelationFilter
             });
 
             // Debug: Log the raw API response to verify data integrity

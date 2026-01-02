@@ -62,6 +62,7 @@ Milvus 기반의 다수의 RAG (Retrieval-Augmented Generation) 지식 베이스
   - **엔티티 자동 확장**: 관련 엔티티를 그래프에서 탐색하여 검색 범위 확대
   - SPARQL/Cypher 쿼리를 통한 유연한 엔티티 관계 탐색
   - 설정 가능한 그래프 탐색 깊이 (1-5 hops)
+  - **Relation Filter (Neo4j)**: 관계 키워드 필터링 옵션 제공 (정밀도 vs 재현율 조절 가능)
   - **스코어 부스팅**: 그래프 검색 결과에 1.5x 가중치 적용
   - Hybrid 검색과의 통합으로 완전한 검색 커버리지 제공
   - 추출된 엔티티, SPARQL 쿼리, 트리플 메타데이터 표시
@@ -117,6 +118,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 cd frontend
 npm install
 npm run dev
+# Vite 개발 서버 포트: 5173
 ```
 
 ### 4. 접속
@@ -170,7 +172,7 @@ docker-compose up -d
 **자세한 가이드**: [AIRGAP-DEPLOY.md](AIRGAP-DEPLOY.md) 참조
 
 접속:
-- Frontend: http://서버IP
+- Frontend: http://서버IP:5173
 - Backend API: http://서버IP:8000/docs
 - Fuseki Admin UI: http://localhost:3030 (Graph RAG 사용 시)
 

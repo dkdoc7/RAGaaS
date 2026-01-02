@@ -17,6 +17,7 @@ interface DocumentsTabProps {
     onRefresh: () => void;
     onDeleteDocument: (docId: string) => void;
     onViewChunks: (doc: Document) => void;
+    isOntology?: boolean;
 }
 
 export default function DocumentsTab({ kbId, documents, onRefresh, onDeleteDocument, onViewChunks }: DocumentsTabProps) {

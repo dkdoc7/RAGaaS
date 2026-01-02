@@ -30,8 +30,9 @@ class ChatRequest(BaseModel):
     enable_graph_search: bool = False
     graph_hops: int = 1
     use_brute_force: bool = False
-    brute_force_top_k: int = 1
+    brute_force_top_k: int = 3
     brute_force_threshold: float = 1.5
+    use_relation_filter: bool = True  # Neo4j: filter by relationship keywords
 
 class ChatResponse(BaseModel):
     answer: str
@@ -68,6 +69,7 @@ async def retrieve_chunks(
         score_threshold=request.score_threshold,
         enable_graph_search=request.enable_graph_search,
         graph_hops=request.graph_hops,
+        graph_backend=kb.graph_backend or "ontology",
         use_llm_keyword_extraction=request.use_llm_keyword_extraction,
         use_multi_pos=request.use_multi_pos,
         bm25_top_k=request.bm25_top_k,
@@ -179,10 +181,12 @@ async def chat_with_kb(
         score_threshold=request.score_threshold,
         enable_graph_search=request.enable_graph_search,
         graph_hops=request.graph_hops,
+        graph_backend=kb.graph_backend or "ontology",
         use_llm_keyword_extraction=request.use_llm_keyword_extraction,
         use_multi_pos=request.use_multi_pos,
         bm25_top_k=request.bm25_top_k,
-        use_parallel_search=request.use_parallel_search
+        use_parallel_search=request.use_parallel_search,
+        use_relation_filter=request.use_relation_filter
     )
     
     with open("backend_debug.log", "a") as f:

@@ -73,9 +73,13 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
         semantic_mode: false,
         buffer_size: 1,
         breakpoint_type: 'percentile',
-        breakpoint_amount: 95
+        breakpoint_amount: 95,
+        // Graph RAG settings
+        graph_section_size: 6000,
+        graph_section_overlap: 500
     });
     const [enableGraphRag, setEnableGraphRag] = useState(false);
+    const [graphBackend, setGraphBackend] = useState<'ontology' | 'neo4j'>('ontology');
     const [isCreating, setIsCreating] = useState(false);
 
     if (!isOpen) return null;
@@ -90,7 +94,7 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
                 chunking_strategy: strategy,
                 chunking_config: config,
                 metric_type: 'COSINE',
-                enable_graph_rag: enableGraphRag
+                graph_backend: enableGraphRag ? graphBackend : 'none'
             });
             onCreateComplete();
             onClose();
@@ -183,6 +187,80 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
                                 </div>
                             </div>
                         </label>
+
+                        {enableGraphRag && (
+                            <div style={{ marginTop: '1rem', paddingLeft: '2rem', borderTop: '1px solid #e2e8f0', paddingTop: '1rem' }}>
+                                <label style={{ display: 'block', marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>Graph Backend Strategy</label>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
+                                        <input
+                                            type="radio"
+                                            name="graph_backend"
+                                            value="ontology"
+                                            checked={graphBackend === 'ontology'}
+                                            onChange={(e) => setGraphBackend(e.target.value as 'ontology' | 'neo4j')}
+                                            style={{ marginTop: '0.1rem' }}
+                                        />
+                                        <div>
+                                            <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>Using Ontology (Jena+Fuseki)</span>
+                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                                Best for structured hierarchical data and logical inference. Uses Apache Jena Fuseki.
+                                            </div>
+                                        </div>
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
+                                        <input
+                                            type="radio"
+                                            name="graph_backend"
+                                            value="neo4j"
+                                            checked={graphBackend === 'neo4j'}
+                                            onChange={(e) => setGraphBackend(e.target.value as 'ontology' | 'neo4j')}
+                                            style={{ marginTop: '0.1rem' }}
+                                        />
+                                        <div>
+                                            <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>Using Knowledge Graph (Neo4j)</span>
+                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                                Best for complex, highly connected data with property graph model.
+                                            </div>
+                                        </div>
+                                    </label>
+                                </div>
+
+                                {/* Graph Extraction Settings */}
+                                <div style={{ marginTop: '1rem', padding: '1rem', background: '#f1f5f9', borderRadius: '8px' }}>
+                                    <label style={{ display: 'block', marginBottom: '0.75rem', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Graph Extraction Settings</label>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                        <div>
+                                            <LabelWithTooltip
+                                                label="Section Size"
+                                                tooltip="Size of text sections for graph extraction (in characters). Larger sections provide more context for better entity/relation extraction. Default: 6000 (~1500 tokens)"
+                                            />
+                                            <input
+                                                type="number"
+                                                className="input"
+                                                value={config.graph_section_size}
+                                                onChange={(e) => setConfig({ ...config, graph_section_size: parseInt(e.target.value) })}
+                                            />
+                                        </div>
+                                        <div>
+                                            <LabelWithTooltip
+                                                label="Section Overlap"
+                                                tooltip="Overlap between sections to preserve cross-boundary context. Default: 500 characters"
+                                            />
+                                            <input
+                                                type="number"
+                                                className="input"
+                                                value={config.graph_section_overlap}
+                                                onChange={(e) => setConfig({ ...config, graph_section_overlap: parseInt(e.target.value) })}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                                        Larger sections capture more context for accurate entity/relation extraction across chunk boundaries.
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     <div style={{ marginBottom: '2rem' }}>

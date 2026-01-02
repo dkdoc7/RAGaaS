@@ -18,13 +18,19 @@ router = APIRouter()
 
 @router.post("/", response_model=KnowledgeBase)
 async def create_knowledge_base(kb: KnowledgeBaseCreate, db: AsyncSession = Depends(get_db)):
+    # Auto-set enable_graph_rag if graph_backend is specified (not 'none')
+    enable_graph = kb.enable_graph_rag
+    if kb.graph_backend and kb.graph_backend != 'none':
+        enable_graph = True
+    
     db_kb = KBModel(
         name=kb.name, 
         description=kb.description,
         chunking_strategy=kb.chunking_strategy,
         chunking_config=kb.chunking_config,
         metric_type='COSINE',  # Always use COSINE
-        enable_graph_rag=kb.enable_graph_rag
+        enable_graph_rag=enable_graph,
+        graph_backend=kb.graph_backend
     )
     db.add(db_kb)
     await db.commit()
@@ -72,7 +78,6 @@ async def list_knowledge_bases(skip: int = 0, limit: int = 100, db: AsyncSession
             collection_name = f"kb_{kb.id.replace('-', '_')}"
             if utility.has_collection(collection_name):
                 col = Collection(collection_name)
-                col.load()
                 stats = col.num_entities
                 # Rough estimate: each entity ~= 1.5KB (vector + metadata)
                 collection_size = int(stats * 1.5 * 1024)  # bytes
@@ -90,6 +95,7 @@ async def list_knowledge_bases(skip: int = 0, limit: int = 100, db: AsyncSession
             "chunking_config": kb.chunking_config,
             "metric_type": kb.metric_type,
             "enable_graph_rag": kb.enable_graph_rag,
+            "graph_backend": kb.graph_backend,
             "document_count": row[1],
             "total_size": collection_size
         }

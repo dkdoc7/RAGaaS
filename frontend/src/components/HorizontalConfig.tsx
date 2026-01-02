@@ -53,6 +53,10 @@ interface HorizontalConfigProps {
     bruteForceThreshold: number;
     setBruteForceThreshold: (value: number) => void;
 
+    // Graph Relation Filter (Neo4j only)
+    useRelationFilter?: boolean;
+    setUseRelationFilter?: (value: boolean) => void;
+
     // KB Info
     chunkingStrategy?: string;
     graphBackend?: string;
@@ -120,6 +124,8 @@ export default function HorizontalConfig({
     setBruteForceTopK,
     bruteForceThreshold,
     setBruteForceThreshold,
+    useRelationFilter,
+    setUseRelationFilter,
     chunkingStrategy: _chunkingStrategy,  // Reserved for future use
     graphBackend
 }: HorizontalConfigProps) {
@@ -211,7 +217,7 @@ export default function HorizontalConfig({
                             {graphBackend === 'neo4j' ? 'Graph Settings' : 'Ontology Settings'}
                         </label>
 
-                        <div style={{ marginTop: '0.5rem' }}>
+                        <div style={{ marginTop: 0 }}>
                             <label style={{ fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem', color: 'var(--text-secondary)' }}>
                                 <span>Graph Hops</span>
                                 <span style={{ fontWeight: 600, color: graphHops >= 3 ? 'tomato' : 'inherit' }}>{graphHops}</span>
@@ -262,6 +268,25 @@ export default function HorizontalConfig({
                                         </label>
                                     </div>
                                 )}
+                            </div>
+                        )}
+
+                        {/* Relation Filter (Neo4j only) */}
+                        {graphBackend === 'neo4j' && (
+                            <div style={{ marginTop: '0.8rem', borderTop: '1px dashed var(--border)', paddingTop: '0.5rem' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={useRelationFilter ?? true}
+                                        onChange={(e) => setUseRelationFilter?.(e.target.checked)}
+                                    />
+                                    Use Relation Filter
+                                </label>
+                                <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', margin: '0.3rem 0 0 1.4rem', lineHeight: 1.3 }}>
+                                    {useRelationFilter ?? true
+                                        ? 'Filter by relationship keywords'
+                                        : 'Entity-only search (more results, less precise)'}
+                                </p>
                             </div>
                         )}
                     </div>

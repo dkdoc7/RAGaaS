@@ -10,6 +10,7 @@ class KnowledgeBaseBase(BaseModel):
     chunking_config: dict = {}
     metric_type: str = "COSINE"  # COSINE or IP
     enable_graph_rag: bool = False
+    graph_backend: Optional[str] = "ontology"
 
 class KnowledgeBaseCreate(KnowledgeBaseBase):
     pass

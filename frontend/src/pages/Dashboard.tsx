@@ -131,7 +131,7 @@ export default function Dashboard() {
                                                         lineHeight: 1,
                                                         marginLeft: '4px'
                                                     }}>
-                                                        {kb.graph_backend === 'ontology' ? 'Ontology' : 'Neo4j'}
+                                                        {kb.graph_backend === 'ontology' ? 'Ontology' : 'Graph'}
                                                     </span>
                                                 )}
                                             </div>

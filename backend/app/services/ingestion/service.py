@@ -6,6 +6,7 @@ from app.core.milvus import create_collection
 from app.models.document import Document, DocumentStatus
 from app.models.knowledge_base import KnowledgeBase
 from app.core.fuseki import fuseki_client
+from app.core.neo4j_client import neo4j_client
 from app.services.ingestion.graph import graph_processor
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -117,35 +118,131 @@ class IngestionService:
             collection.insert(data)
             collection.flush() # Ensure data is visible
 
-            # 4.5. Graph Ingestion (if enabled)
-            # We check KB settings inside a separate DB session or re-use if possible, 
-            # but here we need to be careful with async/sync calls.
-            # Ideally we passed kb config, but we only passed kb_id.
+            # 4.5. Graph Ingestion (if enabled) - HYBRID APPROACH
+            # Phase 1: Extract graph from larger sections for better context
+            # Phase 2: Regular chunking happens above, graph links to chunks via entity matching
             
             async with SessionLocal() as db:
                 result = await db.execute(select(KnowledgeBase).filter(KnowledgeBase.id == kb_id))
                 kb = result.scalars().first()
                 
                 if kb and kb.enable_graph_rag:
-                    print(f"Graph RAG enabled for KB {kb_id}. Processing {len(texts_to_embed)} chunks...")
+                    # Get graph section size from config (default: 6000 chars, ~1500 tokens)
+                    graph_section_size = int(config.get("graph_section_size", 6000))
+                    graph_section_overlap = int(config.get("graph_section_overlap", 500))
                     
-                    # Ensure dataset exists
-                    try:
-                        fuseki_client.create_dataset(kb_id)
-                    except Exception as e:
-                        print(f"Warning: Could not create/verify dataset: {e}")
-
-                    chunk_ids = [f"{doc_id}_{i}" for i in range(len(texts_to_embed))]
+                    print(f"Graph RAG enabled for KB {kb_id}. Backend: {kb.graph_backend}.")
+                    print(f"Using hybrid approach: section_size={graph_section_size}, overlap={graph_section_overlap}")
                     
-                    for i, text in enumerate(texts_to_embed):
-                        chunk_id = chunk_ids[i]
+                    is_neo4j = kb.graph_backend == 'neo4j'
+                    
+                    if not is_neo4j:
+                        # Ensure dataset exists for Fuseki
                         try:
-                            triples = await graph_processor.extract_graph_elements(text, chunk_id, kb_id, config)
-                            if triples:
-                                fuseki_client.insert_triples(kb_id, triples)
+                            fuseki_client.create_dataset(kb_id)
                         except Exception as e:
-                            print(f"Error processing graph for chunk {chunk_id}: {e}")
-                            # Continue with other chunks even if one fails
+                            print(f"Warning: Could not create/verify dataset: {e}")
+                    else:
+                        # Ensure connectivity for Neo4j
+                        if not neo4j_client.verify_connectivity():
+                            print("Warning: Neo4j is not connected. Skipping graph ingestion.")
+
+                    # Phase 1: Split into larger sections for graph extraction
+                    sections = chunking_service.split_into_sections(
+                        text, 
+                        section_size=graph_section_size,
+                        overlap=graph_section_overlap
+                    )
+                    print(f"Split document into {len(sections)} sections for graph extraction")
+                    
+                    # Extract graph from each section
+                    all_triples = []
+                    for i, section_text in enumerate(sections):
+                        section_id = f"{doc_id}_section_{i}"
+                        try:
+                            graph_result = await graph_processor.extract_graph_elements(
+                                section_text, section_id, kb_id, config
+                            )
+                            
+                            if is_neo4j:
+                                triples = graph_result.get("structured_triples", [])
+                                all_triples.extend(triples)
+                                print(f"Section {i}: extracted {len(triples)} triples")
+                            else:
+                                rdf_triples = graph_result.get("rdf_triples", [])
+                                if rdf_triples:
+                                    fuseki_client.insert_triples(kb_id, rdf_triples)
+                                    
+                        except Exception as e:
+                            print(f"Error processing graph for section {i}: {e}")
+                    
+                    # Phase 2: Insert all triples into Neo4j (with deduplication via MERGE)
+                    if is_neo4j and all_triples:
+                        print(f"Inserting {len(all_triples)} total triples into Neo4j...")
+                        
+                        # Link entities to their chunks based on text matching
+                        chunk_ids = [f"{doc_id}_{i}" for i in range(len(texts_to_embed))]
+                        
+                        for triple in all_triples:
+                            try:
+                                # Basic query to create entities and relations
+                                query = """
+                                MERGE (s:Entity {name: $subj})
+                                MERGE (o:Entity {name: $obj})
+                                MERGE (s)-[:RELATION {type: $pred}]->(o)
+                                """
+                                neo4j_client.execute_query(query, {
+                                    "subj": triple["subject"],
+                                    "obj": triple["object"],
+                                    "pred": triple["predicate"]
+                                })
+                            except Exception as e:
+                                print(f"Error inserting triple: {e}")
+                        
+                        # Link entities to chunks where they appear
+                        print("Linking entities to chunks...")
+                        for i, chunk_text in enumerate(texts_to_embed):
+                            chunk_id = chunk_ids[i]
+                            chunk_text_lower = chunk_text.lower()
+                            
+                            # Find entities mentioned in this chunk
+                            for triple in all_triples:
+                                subj = triple["subject"]
+                                obj = triple["object"]
+                                
+                                # Check if entity appears in chunk (case-insensitive)
+                                subj_in_chunk = subj.lower() in chunk_text_lower
+                                obj_in_chunk = obj.lower() in chunk_text_lower
+                                
+                                if subj_in_chunk or obj_in_chunk:
+                                    try:
+                                        link_query = """
+                                        MERGE (c:Chunk {id: $chunk_id})
+                                        """
+                                        if subj_in_chunk:
+                                            link_query += """
+                                            WITH c
+                                            MATCH (s:Entity {name: $subj})
+                                            MERGE (s)-[:MENTIONED_IN]->(c)
+                                            """
+                                        if obj_in_chunk:
+                                            link_query += """
+                                            WITH c
+                                            MATCH (o:Entity {name: $obj})
+                                            MERGE (o)-[:MENTIONED_IN]->(c)
+                                            """
+                                        
+                                        params = {"chunk_id": chunk_id}
+                                        if subj_in_chunk:
+                                            params["subj"] = subj
+                                        if obj_in_chunk:
+                                            params["obj"] = obj
+                                            
+                                        neo4j_client.execute_query(link_query, params)
+                                    except Exception as e:
+                                        pass  # Silently continue on link errors
+                        
+                        print(f"Graph ingestion complete for {kb_id}")
             
             # 5. Update Status to COMPLETED
             async with SessionLocal() as db:

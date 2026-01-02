@@ -23,9 +23,9 @@ class GraphProcessor:
         clean = re.sub(r'[^a-zA-Z0-9_\uAC00-\uD7A3\u0400-\u04FF]+', '_', text.strip())
         return urllib.parse.quote(clean)
 
-    async def extract_graph_elements(self, text: str, chunk_id: str, kb_id: str, config: Dict[str, Any] = {}) -> List[str]:
+    async def extract_graph_elements(self, text: str, chunk_id: str, kb_id: str, config: Dict[str, Any] = {}) -> Dict[str, Any]:
         """
-        Extracts entities and relations from text and returns RDF triples (N-Triples).
+        Extracts entities and relations from text and returns structured data and RDF triples.
         """
         # Check config for method
         graph_settings = config.get("graph_settings", {})
@@ -34,7 +34,12 @@ class GraphProcessor:
         if method == "spacy":
             processor = SpacyGraphProcessor(kb_id)
             # Pass merged config or graph_settings? Pass graph_settings
-            return await processor.extract_graph_elements(text, chunk_id, graph_settings)
+            # Spacy processor currently returns list[str]. 
+            # We might need to adjust it later, but for now let's wrap it?
+            # Or better, just assume LLM for Neo4j for this task to minimize complexity.
+            # But to keep type consistency:
+            rdf_triples = await processor.extract_graph_elements(text, chunk_id, graph_settings)
+            return {"rdf_triples": rdf_triples, "structured_triples": []}
 
         # Fallback to LLM (Original Logic)
         prompt = f"""
@@ -101,10 +106,17 @@ class GraphProcessor:
                 # s_uri <http://www.w3.org/2000/01/rdf-schema#label> "Subject Name"
                 rdf_triples.append(f'{s_uri} <http://www.w3.org/2000/01/rdf-schema#label> "{item["subject"]}" .')
 
-            return rdf_triples
+                # Annotate Subject with Label (for human readability / debugging)
+                # s_uri <http://www.w3.org/2000/01/rdf-schema#label> "Subject Name"
+                rdf_triples.append(f'{s_uri} <http://www.w3.org/2000/01/rdf-schema#label> "{item["subject"]}" .')
+
+            return {
+                "rdf_triples": rdf_triples,
+                "structured_triples": triples_data
+            }
 
         except Exception as e:
             logger.error(f"Error extracting graph elements: {e}")
-            return []
+            return {"rdf_triples": [], "structured_triples": []}
 
 graph_processor = GraphProcessor()

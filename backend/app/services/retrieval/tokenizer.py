@@ -80,6 +80,7 @@ def korean_tokenize(
         allowed_tags = {'NNG', 'NNP', 'NR', 'NP', 'SL'}
     else:  # 'extended'
         # Nouns + Verbs + Adjectives - for broader matching (Hybrid)
+        # Nouns + Verbs + Adjectives (reverted based on feedback)
         allowed_tags = {'NNG', 'NNP', 'NR', 'NP', 'SL', 'VV', 'VA'}
     
     # Extract tokens from morphological analysis

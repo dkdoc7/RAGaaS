@@ -1,6 +1,8 @@
 from typing import List, Dict, Any
 from .base import RetrievalStrategy
+from .graph_backends import GraphBackendFactory
 from app.core.fuseki import fuseki_client
+from app.core.neo4j_client import neo4j_client
 from app.core.config import settings
 from app.core.milvus import create_collection
 from openai import AsyncOpenAI
@@ -49,12 +51,19 @@ class GraphRetrievalStrategy(RetrievalStrategy):
             print(f"DEBUG: Detected multi-hop query, setting hops to {graph_hops}")
         
         print(f"DEBUG: Searching graph with hops={graph_hops}")
-        graph_result = self._query_graph_semantic(
-            kb_id, 
-            all_entities, 
+        graph_backend_type = kwargs.get("graph_backend", "ontology")
+        
+        # Use Factory to get backend instance
+        backend = GraphBackendFactory.get_backend(graph_backend_type)
+        
+        # Execute query via backend strategy
+        graph_result = await backend.query(
+            kb_id=kb_id,
+            entities=all_entities,
             hops=graph_hops,
             query_type=query_analysis.get("query_type"),
-            relationship_keywords=query_analysis.get("relationship_keywords", [])
+            relationship_keywords=query_analysis.get("relationship_keywords", []),
+            **kwargs
         )
         
         chunk_ids = graph_result["chunk_ids"]
@@ -288,144 +297,6 @@ class GraphRetrievalStrategy(RetrievalStrategy):
         
         return list(expanded)[:10]  # Limit to prevent explosion
 
-
-    def _sanitize_uri(self, text: str) -> str:
-        # Same logic as GraphProcessor
-        clean = re.sub(r'[^a-zA-Z0-9_\uAC00-\uD7A3\u0400-\u04FF]+', '_', text.strip())
-        return urllib.parse.quote(clean)
-
-    def _query_graph_semantic(
-        self, 
-        kb_id: str, 
-        entities: List[str], 
-        hops: int = 1,
-        query_type: str = "simple",
-        relationship_keywords: List[str] = None
-    ) -> Dict[str, Any]:
-        """Enhanced graph query with semantic relationship understanding."""
-        
-        if not entities:
-            return {"chunk_ids": [], "sparql_query": "", "triples": []}
-
-        # Escape entities for SPARQL regex
-        safe_entities = [re.escape(e) for e in entities]
-        regex_pattern = "|".join(safe_entities)
-        
-        # Build relationship filter based on keywords
-        relationship_filter = ""
-        if relationship_keywords:
-            rel_patterns = []
-            for kw in relationship_keywords:
-                if kw == "master":
-                    rel_patterns.extend(["master", "스승", "teacher", "mentor"])
-                elif kw == "student":
-                    rel_patterns.extend(["student", "제자", "학생", "disciple"])
-                elif kw == "전수":
-                    rel_patterns.extend(["전수", "teach", "learn", "inherit"])
-            
-            if rel_patterns:
-                rel_regex = "|".join([re.escape(p) for p in rel_patterns])
-                relationship_filter = f'|| regex(str(?pred), "({rel_regex})", "i")'
-        
-        # Enhanced SPARQL query with semantic understanding
-        sparql_query = f"""
-        PREFIX rel: <{self.namespace_relation}>
-        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-        
-        SELECT DISTINCT ?chunkUri
-        WHERE {{
-            {{
-                # Entity-based Traversal with flexible relationship matching
-                ?start rdfs:label ?label .
-                FILTER regex(?label, "({regex_pattern})", "i")
-                
-                # Property Path: 0 to {hops} steps
-                # Use negated property set (anything except hasSource and label)
-                ?start (!(rel:hasSource|rdfs:label) | ^!(rel:hasSource|rdfs:label)){{0,{hops}}} ?reachable .
-                
-                ?reachable rel:hasSource ?chunkUri .
-            }}
-            UNION
-            {{
-                # Direct predicate match (relationship names)
-                ?s ?p ?o .
-                FILTER (
-                    regex(str(?p), "({regex_pattern})", "i")
-                    {relationship_filter.replace('?pred', '?p') if relationship_filter else ''}
-                )
-                {{ ?s rel:hasSource ?chunkUri }} UNION {{ ?o rel:hasSource ?chunkUri }}
-            }}
-            UNION
-            {{
-                # Content-based match - entities mentioned in same chunk
-                ?e1 rdfs:label ?l1 .
-                ?e2 rdfs:label ?l2 .
-                FILTER regex(?l1, "({regex_pattern})", "i")
-                FILTER regex(?l2, "({regex_pattern})", "i")
-                FILTER (?e1 != ?e2)
-                
-                ?e1 rel:hasSource ?chunkUri .
-                ?e2 rel:hasSource ?chunkUri .
-            }}
-        }}
-        LIMIT 100
-        """
-        
-        print(f"DEBUG: Enhanced SPARQL Query:\n{sparql_query}")
-        
-        results = fuseki_client.query_sparql(kb_id, sparql_query)
-        
-        chunk_ids = []
-        for binding in results.get("results", {}).get("bindings", []):
-            uri = binding.get("chunkUri", {}).get("value", "")
-            if uri.startswith("http://rag.local/source/"):
-                chunk_ids.append(uri.split("/")[-1])
-        
-        # Get triples for display
-        triples_query = f"""
-        PREFIX rel: <{self.namespace_relation}>
-        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-        SELECT DISTINCT ?s ?sLabel ?p ?o ?oLabel
-        WHERE {{
-            ?s ?p ?o .
-            FILTER (?p != rel:hasSource && ?p != rdfs:label)
-            OPTIONAL {{ ?s rdfs:label ?sLabel }}
-            OPTIONAL {{ ?o rdfs:label ?oLabel }}
-            
-            # More flexible filtering
-            FILTER (
-                regex(?sLabel, "({regex_pattern})", "i") || 
-                regex(?oLabel, "({regex_pattern})", "i") || 
-                regex(str(?p), "({regex_pattern})", "i")
-                {relationship_filter.replace('?pred', '?p') if relationship_filter else ''}
-            )
-        }}
-        LIMIT 30
-        """
-        
-        triples_results = fuseki_client.query_sparql(kb_id, triples_query)
-        triples = []
-        
-        for binding in triples_results.get("results", {}).get("bindings", []):
-            s_label = binding.get("sLabel", {}).get("value", binding.get("s", {}).get("value", ""))
-            p_uri = binding.get("p", {}).get("value", "")
-            o_label = binding.get("oLabel", {}).get("value", binding.get("o", {}).get("value", ""))
-            
-            # Decode URL-encoded predicates
-            p_display = urllib.parse.unquote(p_uri.split("/")[-1]) if "/" in p_uri else p_uri
-            
-            triples.append({
-                "subject": s_label,
-                "predicate": p_display,
-                "object": o_label
-            })
-                
-        return {
-            "chunk_ids": list(set(chunk_ids)),
-            "sparql_query": sparql_query.strip(),
-            "triples": triples
-        }
-    
     async def _fallback_search(self, kb_id: str, query: str, entities: List[str], top_k: int) -> List[Dict[str, Any]]:
         """Fallback to hybrid vector+keyword search when graph doesn't have complete data."""
         from .vector import VectorRetrievalStrategy
