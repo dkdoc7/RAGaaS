@@ -233,7 +233,19 @@ class GraphRetrievalStrategy(RetrievalStrategy):
             )
             
             llm_analysis = json.loads(response.choices[0].message.content)
+            
+            # Update BUT protect multi_hop if already detected by regex
+            original_type = analysis["query_type"]
             analysis.update(llm_analysis)
+            
+            if original_type == "multi_hop":
+                 analysis["query_type"] = "multi_hop"
+                 analysis["hops"] = max(analysis.get("hops", 1), 2)
+            
+            # Map LLM is_multi_hop to query_type if not set
+            if llm_analysis.get("is_multi_hop") and analysis["query_type"] != "multi_hop":
+                analysis["query_type"] = "multi_hop"
+                analysis["hops"] = max(llm_analysis.get("hop_count", 2), 2)
             
         except Exception as e:
             logger.warning(f"Error in LLM query analysis: {e}")

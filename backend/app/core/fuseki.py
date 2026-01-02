@@ -123,4 +123,31 @@ class FusekiClient:
             logger.error(f"Error executing SPARQL query on {kb_id}: {e}")
             return {}
 
+    def load_ontology(self, kb_id: str, schema_content: str, content_type: str = "text/turtle") -> bool:
+        """
+        Upload an ontology schema (TTL, RDF/XML, etc.) to the dataset.
+        schema_content: The raw string content of the schema file.
+        content_type: MIME type (e.g., text/turtle, application/rdf+xml).
+        """
+        if not schema_content:
+            return True
+            
+        dataset_url = self._get_dataset_url(kb_id)
+        data_url = f"{dataset_url}/data"
+        
+        try:
+            # Upload to default graph
+            headers = {"Content-Type": content_type}
+            response = requests.post(data_url, data=schema_content.encode('utf-8'), headers=headers, auth=self.auth, timeout=30)
+            
+            if response.status_code in [200, 204]:
+                logger.info(f"Loaded ontology schema into {kb_id}")
+                return True
+            else:
+                logger.error(f"Failed to load ontology: {response.status_code} {response.text}")
+                return False
+        except Exception as e:
+            logger.error(f"Error loading ontology into {kb_id}: {e}")
+            return False
+
 fuseki_client = FusekiClient()

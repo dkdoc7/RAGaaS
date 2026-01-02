@@ -13,6 +13,7 @@ class KnowledgeBaseBase(BaseModel):
     graph_backend: Optional[str] = "ontology"
 
 class KnowledgeBaseCreate(KnowledgeBaseBase):
+    ontology_schema: Optional[str] = None
     pass
 
 class KnowledgeBase(KnowledgeBaseBase):

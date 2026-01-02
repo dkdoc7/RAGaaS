@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, UploadFile, File
 from dataclasses import asdict
 from app.services.ingestion.entity_store import EntityStore, EntityInfo
 from pymilvus import Collection
@@ -13,8 +13,23 @@ from app.models.document import Document as DocModel
 from sqlalchemy import delete
 
 from app.core.fuseki import fuseki_client
+from app.services.ingestion.graph import graph_processor
 
 router = APIRouter()
+
+@router.post("/extract-schema")
+async def extract_schema_from_file(file: UploadFile = File(...)):
+    try:
+        content = await file.read()
+        # Decode content (assume UTF-8)
+        text = content.decode("utf-8")
+        
+        # Generate schema
+        schema_ttl = await graph_processor.extract_schema_from_text(text)
+        
+        return {"schema": schema_ttl}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to extract schema: {str(e)}")
 
 @router.post("/", response_model=KnowledgeBase)
 async def create_knowledge_base(kb: KnowledgeBaseCreate, db: AsyncSession = Depends(get_db)):
@@ -46,8 +61,11 @@ async def create_knowledge_base(kb: KnowledgeBaseCreate, db: AsyncSession = Depe
     if db_kb.enable_graph_rag:
         try:
             fuseki_client.create_dataset(db_kb.id)
+            # Load ontology schema if provided
+            if kb.graph_backend == 'ontology' and kb.ontology_schema:
+                fuseki_client.load_ontology(db_kb.id, kb.ontology_schema)
         except Exception as e:
-            print(f"Failed to create Fuseki dataset: {e}")
+            print(f"Failed to create Fuseki dataset or load schema: {e}")
         
     return db_kb
 

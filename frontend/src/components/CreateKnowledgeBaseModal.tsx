@@ -80,9 +80,45 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
     });
     const [enableGraphRag, setEnableGraphRag] = useState(false);
     const [graphBackend, setGraphBackend] = useState<'ontology' | 'neo4j'>('ontology');
+    const [ontologySchema, setOntologySchema] = useState<string>('');
+    const [fileName, setFileName] = useState<string>('');
     const [isCreating, setIsCreating] = useState(false);
+    const [isExtracting, setIsExtracting] = useState(false);
 
     if (!isOpen) return null;
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setFileName(file.name);
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const content = e.target?.result as string;
+                setOntologySchema(content);
+            };
+            reader.readAsText(file);
+        }
+    };
+
+    const handleGenerateSchema = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setIsExtracting(true);
+        try {
+            const res = await kbApi.extractSchema(file);
+            if (res.data && res.data.schema) {
+                setOntologySchema(res.data.schema);
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Failed to generate schema from file.');
+        } finally {
+            setIsExtracting(false);
+            // Reset input
+            e.target.value = '';
+        }
+    };
 
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -94,7 +130,8 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
                 chunking_strategy: strategy,
                 chunking_config: config,
                 metric_type: 'COSINE',
-                graph_backend: enableGraphRag ? graphBackend : 'none'
+                graph_backend: enableGraphRag ? graphBackend : 'none',
+                ontology_schema: (enableGraphRag && graphBackend === 'ontology') ? ontologySchema : undefined
             });
             onCreateComplete();
             onClose();
@@ -208,6 +245,56 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
                                             </div>
                                         </div>
                                     </label>
+
+                                    {graphBackend === 'ontology' && (
+                                        <div style={{ marginLeft: '1.9rem', marginTop: '-0.25rem', marginBottom: '0.5rem', padding: '1rem', background: '#fff', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                                            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+                                                Ontology Schema (Turtle/OWL)
+                                            </label>
+                                            <textarea
+                                                className="input"
+                                                value={ontologySchema}
+                                                onChange={(e) => setOntologySchema(e.target.value)}
+                                                rows={8}
+                                                style={{ fontFamily: 'monospace', fontSize: '0.8rem', marginBottom: '0.75rem', whiteSpace: 'pre' }}
+                                                placeholder="# Paste your ontology content here..."
+                                            />
+
+                                            <div style={{ display: 'flex', gap: '1rem' }}>
+                                                <div style={{ flex: 1 }}>
+                                                    <label style={{ display: 'inline-block', cursor: 'pointer', padding: '0.25rem 0.5rem', background: '#f1f5f9', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, border: '1px solid #cbd5e1' }}>
+                                                        📂 Load Schema File
+                                                        <input
+                                                            type="file"
+                                                            accept=".ttl,.owl,.rdf,.xml,.txt"
+                                                            onChange={handleFileChange}
+                                                            style={{ display: 'none' }}
+                                                        />
+                                                    </label>
+                                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                                                        Load local .ttl/.owl file
+                                                    </div>
+                                                </div>
+
+                                                <div style={{ flex: 1 }}>
+                                                    <label style={{ display: 'inline-block', cursor: 'pointer', padding: '0.25rem 0.5rem', background: '#eff6ff', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, border: '1px solid #bfdbfe', color: '#1e40af' }}>
+                                                        {isExtracting ? '⏳ Generating...' : '✨ Generate from Doc'}
+                                                        <input
+                                                            type="file"
+                                                            accept=".txt,.md,.pdf"
+                                                            onChange={handleGenerateSchema}
+                                                            disabled={isExtracting}
+                                                            style={{ display: 'none' }}
+                                                        />
+                                                    </label>
+                                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                                                        Extract schema from sample doc
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
                                         <input
                                             type="radio"

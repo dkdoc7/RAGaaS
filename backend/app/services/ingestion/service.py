@@ -160,6 +160,7 @@ class IngestionService:
                     for i, section_text in enumerate(sections):
                         section_id = f"{doc_id}_section_{i}"
                         try:
+                            # Pass config which now contains improved LLM prompt instructions implicitly via graph_processor defaults
                             graph_result = await graph_processor.extract_graph_elements(
                                 section_text, section_id, kb_id, config
                             )
@@ -167,16 +168,19 @@ class IngestionService:
                             if is_neo4j:
                                 triples = graph_result.get("structured_triples", [])
                                 all_triples.extend(triples)
-                                print(f"Section {i}: extracted {len(triples)} triples")
+                                print(f"Section {i}: extracted {len(triples)} triples (Neo4j)")
                             else:
+                                # Fuseki / Ontology Backend
                                 rdf_triples = graph_result.get("rdf_triples", [])
                                 if rdf_triples:
+                                    print(f"Section {i}: extracted {len(rdf_triples)} RDF triples (Fuseki)")
                                     fuseki_client.insert_triples(kb_id, rdf_triples)
                                     
                         except Exception as e:
                             print(f"Error processing graph for section {i}: {e}")
                     
                     # Phase 2: Insert all triples into Neo4j (with deduplication via MERGE)
+                    # For Fuseki, data is already inserted in the loop above.
                     if is_neo4j and all_triples:
                         print(f"Inserting {len(all_triples)} total triples into Neo4j...")
                         

@@ -42,40 +42,92 @@ class GraphProcessor:
             return {"rdf_triples": rdf_triples, "structured_triples": []}
 
         # Fallback to LLM (Original Logic)
-        prompt = f"""
-        Analyze the following text and extract key entities and their relationships.
-        Return a JSON object with a list of "triples".
-        Each triple should have:
-        - "subject": Entity name (Person, Org, Location, Concept, etc.)
-        - "predicate": Relationship (verb phrase, e.g., "is CEO of", "located in", "part of", "master of", "student of")
-        - "object": Entity name (Person, Org, Location, Concept, etc.)
+        # Enhanced Prompt for General-Purpose Graph Extraction
+        system_prompt = """
+        You are a knowledge-graph construction agent specialized in extracting strict factual relationships.
+        
+        **Objective:**
+        Extract structured knowledge (triples) from the text, adhering to strict factual accuracy and specific formatting rules.
 
-        Text:
-        {text[:2000]}  # Limit text length to avoid token limits
+        **STRICT RULES:**
+        1. **Do NOT infer or guess relationships.** Only extract what is explicitly written in the text.
+        2. **Do NOT create entities** that are not explicitly mentioned.
+        3. **DO NOT TRANSLATE ENTITIES.** Keep them in their original language (e.g., "성기훈" -> "성기훈", "Steve Jobs" -> "Steve Jobs").
+        4. **PREDICATES MUST BE ENGLISH ONLY** and use **snake_case** (e.g., `creator_of`, `works_at`, `master_of`).
+        5. **INVERSE RELATIONS:** For hierarchical or social relationships, output both directions if applicable (e.g., `student_of` AND `teacher_of`) to enrich the graph connectivity.
+        6. **CANONICAL NAMES:** Remove titles and honorifics where possible (e.g., "President Lee" -> "Lee").
 
-        Output format:
-        {{
+        **Graph Schema & Relationship Types:**
+        **Node Types (Implicit):** Person, Organization, Location, Event, Concept, Creation
+        
+        **Recommended Relationship Types (snake_case):**
+        - **Social/Hierarchical**: `student_of`, `teacher_of`, `master_of`, `subordinate_of`, `leader_of`, `parent_of`, `child_of`, `spouse_of`, `friend_of`, `enemy_of`
+        - **Professional/Action**: `works_at`, `employs`, `creator_of`, `created_by`, `member_of`, `participates_in`, `plays_role`, `founded_by`
+        - **General/Attribute**: `located_in`, `is_a` (classification), `part_of`, `related_to`, `owns`, `operates`
+
+        **Few-Shot Examples:**
+        
+        Input: "Apple의 CEO인 팀 쿡은 새로운 아이폰을 발표했다. 이 행사는 캘리포니아에서 열렸다."
+        Output:
+        {
             "triples": [
-                {{"subject": "Elon Musk", "predicate": "is CEO of", "object": "SpaceX"}},
-                ...
+                {"subject": "팀 쿡", "predicate": "is_ceo_of", "object": "Apple"},
+                {"subject": "Apple", "predicate": "has_ceo", "object": "팀 쿡"},
+                {"subject": "팀 쿡", "predicate": "announced", "object": "새로운 아이폰"},
+                {"subject": "새로운 아이폰", "predicate": "product_of", "object": "Apple"},
+                {"subject": "이 행사", "predicate": "located_in", "object": "캘리포니아"}
             ]
-        }}
+        }
+        
+        Input: "홍길동은 구미호에게 도술을 배웠다. 그는 이후 산적으로 활동했다."
+        Output:
+        {
+            "triples": [
+                {"subject": "홍길동", "predicate": "learned_from", "object": "구미호"},
+                {"subject": "홍길동", "predicate": "student_of", "object": "구미호"},
+                {"subject": "구미호", "predicate": "teacher_of", "object": "홍길동"},
+                {"subject": "홍길동", "predicate": "learned", "object": "도술"},
+                {"subject": "홍길동", "predicate": "is_a", "object": "산적"}
+            ]
+        }
+        
+        Input: "RAG(Retrieval-Augmented Generation)는 LLM의 할루시네이션을 줄이는 기술이다."
+        Output:
+        {
+            "triples": [
+                {"subject": "RAG", "predicate": "is_a", "object": "기술"},
+                {"subject": "RAG", "predicate": "reduces", "object": "할루시네이션"},
+                {"subject": "할루시네이션", "predicate": "related_to", "object": "LLM"}
+            ]
+        }
+        """
+
+        user_prompt = f"""
+        Analyze the following text and extract all relevant triples.
+        
+        Text:
+        {text[:3000]}
+        
+        Output JSON only.
         """
 
         try:
             response = await self.client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "You are a knowledge graph extractor. Extract specific entities and relations. Support Korean text. Output JSON only."},
-                    {"role": "user", "content": prompt}
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
                 ],
                 temperature=0,
                 response_format={"type": "json_object"}
             )
             
             content = response.choices[0].message.content
+            print(f"DEBUG: LLM Response for Graph Extraction:\n{content}")
+            
             data = json.loads(content)
             triples_data = data.get("triples", [])
+            print(f"DEBUG: Extracted {len(triples_data)} triples from JSON")
             
             rdf_triples = []
             
@@ -119,4 +171,36 @@ class GraphProcessor:
             logger.error(f"Error extracting graph elements: {e}")
             return {"rdf_triples": [], "structured_triples": []}
 
+    async def extract_schema_from_text(self, text: str) -> str:
+        """
+        Generates an ontology schema (Turtle format) from the provided text sample.
+        """
+        prompt = f"""
+        Analyze the following text and design a simple ontology (RDFS/OWL) that represents the key concepts and relationships found in the text.
+        
+        Text Sample:
+        {text[:4000]}
+        
+        Instructions:
+        1. Identify key classes (Class) and properties (Property).
+        2. Define them using Turtle (.ttl) syntax.
+        3. Use the namespace: @prefix : <http://rag.local/schema#> .
+        4. Include standard prefixes (rdf, rdfs, owl, xsd).
+        5. Output ONLY the Turtle code. No explanation.
+        """
+        
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "You are an expert Ontology Engineer. Output valid Turtle syntax only."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            logger.error(f"Error extracting schema: {e}")
+            return "# Error generating schema. Please try again or write manually."
+            
 graph_processor = GraphProcessor()
