@@ -64,3 +64,10 @@ ubuntu_deploy/packages/
 ubuntu_deploy/backend/
 ubuntu_deploy/frontend/
 
+
+# Debug & Temp files
+backend/doc2onto_out/
+backend/debug_*.py
+backend/check_*.py
+*.bak
+backend/debug_*.txt
