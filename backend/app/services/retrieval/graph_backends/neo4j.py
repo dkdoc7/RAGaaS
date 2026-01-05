@@ -31,22 +31,36 @@ class Neo4jBackend(GraphBackend):
         # Build query based on use_relation_filter setting
         if use_relation_filter and relationship_keywords:
             # Mode 1: Filter by relationship type keywords (more precise, less recall)
-            rel_conditions = " OR ".join([f"type(r) CONTAINS '{kw}'" for kw in relationship_keywords])
+            # Expand keywords to include Korean variations
+            expanded_keywords = []
+            keyword_mapping = {
+                "master": ["스승", "선생", "master", "teacher", "mentor"],
+                "student": ["제자", "학생", "student", "disciple"],
+                "전수": ["전수", "전해", "배우", "가르치", "teach", "learn"],
+                "관계": ["관계", "연결", "relationship", "connection"]
+            }
+            for kw in relationship_keywords:
+                if kw in keyword_mapping:
+                    expanded_keywords.extend(keyword_mapping[kw])
+                else:
+                    expanded_keywords.append(kw)
+            
+            rel_conditions = " OR ".join([f"type(rel) CONTAINS '{kw}'" for kw in expanded_keywords])
             cypher_query = f"""
             MATCH (s:Entity)
-            WHERE s.name IN $entities
+            WHERE s.label_ko IN $entities OR s.name IN $entities
             MATCH path = (s)-[r*1..{hops}]-(o:Entity)
             WHERE ANY(rel IN relationships(path) WHERE {rel_conditions})
             MATCH (o)-[:MENTIONED_IN]->(c:Chunk)
             RETURN DISTINCT c.id as chunk_id, nodes(path) as path_nodes, relationships(path) as path_rels
             LIMIT 100
             """
-            print(f"DEBUG: [Neo4j] Using RELATION FILTER mode with keywords: {relationship_keywords}")
+            print(f"DEBUG: [Neo4j] Using RELATION FILTER mode with expanded keywords: {expanded_keywords}")
         else:
             # Mode 2: Entity-based traversal (maximum recall)
             cypher_query = f"""
             MATCH (s:Entity)
-            WHERE s.name IN $entities
+            WHERE s.label_ko IN $entities OR s.name IN $entities
             MATCH path = (s)-[*1..{hops}]-(o:Entity)
             MATCH (o)-[:MENTIONED_IN]->(c:Chunk)
             RETURN DISTINCT c.id as chunk_id, nodes(path) as path_nodes, relationships(path) as path_rels
@@ -97,11 +111,17 @@ class Neo4jBackend(GraphBackend):
         """Fetch triples connected to the discovered chunks for metadata display."""
         triples = []
         try:
+            # Use any relationship type (not just :RELATION) since we now use dynamic types
+            # Support both Doc2Onto schema (label_ko) and legacy schema (name)
             triples_query = """
-            MATCH (s:Entity)-[r:RELATION]->(o:Entity)
-            WHERE (s)-[:MENTIONED_IN]->(:Chunk {id: $chunk_id}) 
-                OR (o)-[:MENTIONED_IN]->(:Chunk {id: $chunk_id})
-            RETURN DISTINCT s.name as subj, r.type as pred, o.name as obj
+            MATCH (s:Entity)-[r]->(o:Entity)
+            WHERE type(r) <> 'MENTIONED_IN'
+              AND ((s)-[:MENTIONED_IN]->(:Chunk {id: $chunk_id}) 
+                   OR (o)-[:MENTIONED_IN]->(:Chunk {id: $chunk_id}))
+            RETURN DISTINCT 
+                COALESCE(s.label_ko, s.name) as subj, 
+                type(r) as pred, 
+                COALESCE(o.label_ko, o.name) as obj
             LIMIT 10
             """
             
