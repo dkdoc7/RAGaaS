@@ -13,6 +13,8 @@ from sqlalchemy.future import select
 from typing import List
 
 from app.core.database import SessionLocal, get_db
+from app.services.ingestion.doc2onto import doc2onto_processor
+
 
 class IngestionService:
     async def process_document(
@@ -25,6 +27,93 @@ class IngestionService:
         chunking_config: str = "{}"
     ):
         try:
+            # Doc2Onto Interception
+            async with SessionLocal() as db:
+                result = await db.execute(select(KnowledgeBase).filter(KnowledgeBase.id == kb_id))
+                kb_check = result.scalars().first()
+                
+            if kb_check and kb_check.enable_graph_rag and getattr(kb_check, 'graph_backend', '') in ['neo4j', 'ontology']:
+                import tempfile
+                import os
+                # DocumentStatus is already imported at module level
+
+                # Save temporary file
+                suffix = ".pdf" if filename.endswith(".pdf") else ".txt" 
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                    tmp.write(file_content)
+                    tmp_path = tmp.name
+                
+                try:
+                    graph_backend = getattr(kb_check, 'graph_backend', 'ontology')
+                    doc2onto_result = await doc2onto_processor.process_document_full(
+                        file_path=tmp_path,
+                        kb_id=kb_id,
+                        doc_id=doc_id,
+                        graph_backend=graph_backend,
+                        chunking_strategy=chunking_strategy
+                    )
+                    
+                    if doc2onto_result.get("status") == "skipped":
+                        # Explicitly fail if Doc2Onto was required but skipped
+                        raise Exception(f"Doc2Onto pipeline required for backend '{graph_backend}' but was skipped. Reason: {doc2onto_result.get('reason')}")
+
+                    # Update status to COMPLETED
+                    async with SessionLocal() as db:
+                        result = await db.execute(select(Document).filter(Document.id == doc_id))
+                        doc = result.scalars().first()
+                        if doc:
+                            doc.status = DocumentStatus.COMPLETED.value
+                            await db.commit()
+                            
+                            # Broadcast WebSocket notification
+                            from app.core.websocket_manager import manager
+                            await manager.broadcast(kb_id, {
+                                "type": "document_status_update",
+                                "doc_id": doc_id,
+                                "status": DocumentStatus.COMPLETED.value,
+                                "filename": filename
+                            })
+                    return # Exit successfully, skipping standard ingestion
+
+                except Exception as e:
+                    print(f"Error in Doc2Onto processing: {e}")
+                    # Update status to ERROR
+                    async with SessionLocal() as db:
+                        result = await db.execute(select(Document).filter(Document.id == doc_id))
+                        doc = result.scalars().first()
+                        if doc:
+                            doc.status = DocumentStatus.ERROR.value
+                            doc.error_message = str(e) # Optionally save error message if model supports it
+                            await db.commit()
+                            from app.core.websocket_manager import manager
+                            await manager.broadcast(kb_id, {
+                                "type": "document_status_update",
+                                "doc_id": doc_id,
+                                "status": DocumentStatus.ERROR.value,
+                                "filename": filename
+                            })
+                    return
+                except Exception as e:
+                    print(f"Error in Doc2Onto processing: {e}")
+                    # Update status to ERROR
+                    async with SessionLocal() as db:
+                        result = await db.execute(select(Document).filter(Document.id == doc_id))
+                        doc = result.scalars().first()
+                        if doc:
+                            doc.status = DocumentStatus.ERROR.value
+                            await db.commit()
+                            from app.core.websocket_manager import manager
+                            await manager.broadcast(kb_id, {
+                                "type": "document_status_update",
+                                "doc_id": doc_id,
+                                "status": DocumentStatus.ERROR.value,
+                                "filename": filename
+                            })
+                    return
+                finally:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+
             # 1. Parse File
             text = ""
             if filename.endswith(".pdf"):
@@ -160,19 +249,38 @@ class IngestionService:
                     for i, section_text in enumerate(sections):
                         section_id = f"{doc_id}_section_{i}"
                         try:
-                            graph_result = await graph_processor.extract_graph_elements(
-                                section_text, section_id, kb_id, config
-                            )
+                            # Check config for Doc2Onto usage (could be a flag or default)
+                            use_doc2onto = config.get("use_doc2onto", False) or kb.graph_backend == "doc2onto" # Example condition
                             
-                            if is_neo4j:
+                            if use_doc2onto:
+                                logger.info(f"Using Doc2Onto pipeline for section {i}")
+                                graph_result = await doc2onto_processor.process(
+                                    section_text, section_id, kb_id=kb_id
+                                )
+                                # Normalize result to expected format
+                                triples = graph_result.get("triples", [])
+                                # If doc2onto returns 'rdf_triples' directly, handle it?
+                                # For now assume structured triples
+                                
+                                # Convert to formatting expected below
+                                if not is_neo4j:
+                                     # TODO: Convert structured triples to RDF for Fuseki if needed
+                                     pass
+                            else:
+                                graph_result = await graph_processor.extract_graph_elements(
+                                    section_text, section_id, kb_id, config
+                                )
                                 triples = graph_result.get("structured_triples", [])
+                                if not is_neo4j:
+                                    rdf_triples = graph_result.get("rdf_triples", [])
+                                    if rdf_triples:
+                                        fuseki_client.insert_triples(kb_id, rdf_triples)
+
+                            if is_neo4j:
+                                # Start of accumulation (merging with existing logic)
                                 all_triples.extend(triples)
                                 print(f"Section {i}: extracted {len(triples)} triples")
-                            else:
-                                rdf_triples = graph_result.get("rdf_triples", [])
-                                if rdf_triples:
-                                    fuseki_client.insert_triples(kb_id, rdf_triples)
-                                    
+                            
                         except Exception as e:
                             print(f"Error processing graph for section {i}: {e}")
                     

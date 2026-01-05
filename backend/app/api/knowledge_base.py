@@ -71,18 +71,8 @@ async def list_knowledge_bases(skip: int = 0, limit: int = 100, db: AsyncSession
     for row in result:
         kb = row[0]
         
-        # Get Milvus collection stats
+        # Performance optimization: Skip querying Milvus for updated collection stats per KB
         collection_size = 0
-        try:
-            connect_milvus()
-            collection_name = f"kb_{kb.id.replace('-', '_')}"
-            if utility.has_collection(collection_name):
-                col = Collection(collection_name)
-                stats = col.num_entities
-                # Rough estimate: each entity ~= 1.5KB (vector + metadata)
-                collection_size = int(stats * 1.5 * 1024)  # bytes
-        except Exception as e:
-            print(f"Error getting collection size for {kb.id}: {e}")
         
         # Convert to dict and add stats
         kb_dict = {
