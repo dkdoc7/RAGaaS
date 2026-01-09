@@ -64,8 +64,11 @@ Milvus 기반의 다수의 RAG (Retrieval-Augmented Generation) 지식 베이스
   - 설정 가능한 그래프 탐색 깊이 (1-5 hops)
   - **Relation Filter (Neo4j)**: 관계 키워드 필터링 옵션 제공 (정밀도 vs 재현율 조절 가능)
   - **스코어 부스팅**: 그래프 검색 결과에 1.5x 가중치 적용
-  - Hybrid 검색과의 통합으로 완전한 검색 커버리지 제공
-  - 추출된 엔티티, SPARQL 쿼리, 트리플 메타데이터 표시
+  - **Entity-Guided Retrieval (New)**: 그래프 검색으로 발견된 엔티티(Duke, 오일남 등)를 활용하여 원본 문서를 2차 검색하는 지능형 전략
+  - **Text-to-SPARQL**: LLM을 활용한 자연어 질의 -> SPARQL 변환 지원 (Ontology Mode)
+  - **향상된 디버깅**: 상세한 Trace Log, 타임스탬프, 소요 시간, 단계별 실행 내역 제공 (Debug Mode)
+  - **Hybrid 검색 통합**: 그래프 지식과 문맥 기반 벡터 검색의 완벽한 조화
+  - 추출된 엔티티, SPARQL/Cypher 쿼리, 트리플 메타데이터 표시
 
 ### 데이터 관리
 - **Cascading Delete**: 지식 베이스 삭제 시 관련 문서 및 벡터 자동 삭제

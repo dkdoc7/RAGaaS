@@ -15,6 +15,7 @@ interface KnowledgeBase {
     document_count?: number;
     total_size?: number;
     graph_backend?: string;
+    is_promoted?: boolean;
 }
 
 export default function Dashboard() {
@@ -122,7 +123,10 @@ export default function Dashboard() {
                                                 </span>
                                                 {kb.graph_backend && kb.graph_backend !== 'none' && (
                                                     <span style={{
-                                                        backgroundColor: kb.graph_backend === 'ontology' ? '#1e40af' : '#166534',
+                                                        backgroundColor:
+                                                            kb.graph_backend === 'ontology'
+                                                                ? (kb.is_promoted ? '#f97316' : '#3b82f6')
+                                                                : '#166534',
                                                         color: 'white',
                                                         fontSize: '0.7rem',
                                                         padding: '2px 8px',
@@ -131,7 +135,9 @@ export default function Dashboard() {
                                                         lineHeight: 1,
                                                         marginLeft: '4px'
                                                     }}>
-                                                        {kb.graph_backend === 'ontology' ? 'Ontology' : 'Graph'}
+                                                        {kb.graph_backend === 'ontology'
+                                                            ? (kb.is_promoted ? 'Ontology+' : 'Ontology-')
+                                                            : 'Graph'}
                                                     </span>
                                                 )}
                                             </div>

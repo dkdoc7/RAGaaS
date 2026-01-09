@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Body
 from dataclasses import asdict
-from app.services.ingestion.entity_store import EntityStore, EntityInfo
 from pymilvus import Collection
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -11,6 +10,13 @@ from app.schemas import KnowledgeBaseCreate, KnowledgeBase
 from app.core.milvus import create_collection, utility, connect_milvus
 from app.models.document import Document as DocModel
 from sqlalchemy import delete
+
+import yaml
+import os
+from pathlib import Path
+from app.core.config import settings
+import requests
+import json
 
 from app.core.fuseki import fuseki_client
 
@@ -86,6 +92,8 @@ async def list_knowledge_bases(skip: int = 0, limit: int = 100, db: AsyncSession
             "metric_type": kb.metric_type,
             "enable_graph_rag": kb.enable_graph_rag,
             "graph_backend": kb.graph_backend,
+            "is_promoted": kb.is_promoted,
+            "promotion_metadata": kb.promotion_metadata,
             "document_count": row[1],
             "total_size": collection_size
         }
@@ -100,6 +108,40 @@ async def get_knowledge_base(kb_id: str, db: AsyncSession = Depends(get_db)):
     if kb is None:
         raise HTTPException(status_code=404, detail="Knowledge Base not found")
     return kb
+
+@router.post("/{kb_id}/promote")
+async def promote_knowledge_base(
+    kb_id: str, 
+    payload: dict = Body(default={}), 
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(select(KnowledgeBase).filter(KnowledgeBase.id == kb_id))
+    kb = result.scalars().first()
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge Base not found")
+    
+    # If payload has 'action' == 'revert', demote
+    if payload.get("action") == "revert":
+        kb.is_promoted = False
+    else:
+        kb.is_promoted = True
+        
+        # Update metadata
+        # Support flat params or {config: ...}
+        params = payload.get("config", payload)
+        
+        # Add timestamp
+        from datetime import datetime
+        params["promoted_at"] = datetime.now().isoformat()
+        
+        # Store in DB
+        # Note: SQLAlchemy JSON type change detection can be tricky.
+        # Assigning a new dict works best.
+        kb.promotion_metadata = params
+
+    await db.commit()
+    await db.refresh(kb)
+    return {"id": kb.id, "is_promoted": kb.is_promoted, "promotion_metadata": kb.promotion_metadata}
 
 @router.delete("/{kb_id}")
 async def delete_knowledge_base(kb_id: str, db: AsyncSession = Depends(get_db)):
@@ -136,39 +178,140 @@ async def delete_knowledge_base(kb_id: str, db: AsyncSession = Depends(get_db)):
         
     return {"ok": True}
 
-@router.get("/{kb_id}/entities")
-async def list_entities(kb_id: str, db: AsyncSession = Depends(get_db)):
-    # Verify KB exists
-    result = await db.execute(select(KBModel).filter(KBModel.id == kb_id))
-    if not result.scalars().first():
-        raise HTTPException(status_code=404, detail="Knowledge Base not found")
-        
-    store = EntityStore(kb_id)
-    # Return as list
-    return [asdict(e) for e in store.entities.values()]
+    return {"ok": True}
+@router.get("/extraction-rules/content")
+async def get_extraction_rules():
+    file_path = Path("extraction_examples.yaml")
+    if not file_path.exists():
+        return {"content": ""}
+    
+    with open(file_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    return {"content": content}
 
-@router.put("/{kb_id}/entities")
-async def update_entities(kb_id: str, entities: List[dict] = Body(...), db: AsyncSession = Depends(get_db)):
-    # Verify KB exists
-    result = await db.execute(select(KBModel).filter(KBModel.id == kb_id))
-    if not result.scalars().first():
-        raise HTTPException(status_code=404, detail="Knowledge Base not found")
+@router.post("/extraction-rules/validate")
+async def validate_extraction_rules(data: dict = Body(...)):
+    content = data.get("content", "")
+    if not content:
+        return {"valid": True, "message": "Content is empty"}
+    
+    # 1. YAML Syntax Check
+    try:
+        rules = yaml.safe_load(content)
+        if not isinstance(rules, list):
+            return {"valid": False, "message": "Rules must be a list of examples."}
+    except Exception as e:
+        return {"valid": False, "message": f"YAML Syntax Error: {str(e)}"}
+    
+    # 2. LLM Semantic Check
+    try:
+        prompt = f"""You are a Knowledge Graph Extraction expert. 
+Review the following extraction rules (few-shot examples) provided in YAML format.
+Check if:
+1. Each example has 'text' and 'triples'.
+2. The 'triples' follow the structure (subject, predicate, object).
+3. The extraction logic is consistent and makes sense.
+
+Rules:
+{content}
+
+If there are any issues, point them out clearly in Korean.
+If everything is perfect, respond with "OK".
+"""
+        headers = {
+            "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant that validates YAML extraction rules."},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0
+        }
         
-    store = EntityStore(kb_id)
-    
-    new_entities = {}
-    for e in entities:
-        if 'name' not in e: continue
-        name = e['name']
-        new_entities[name] = EntityInfo(
-            name=name,
-            label=e.get('label', 'UNKNOWN'),
-            count=e.get('count', 1),
-            aliases=e.get('aliases', []),
-            is_promoted=e.get('is_promoted', False)
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=30
         )
+        response.raise_for_status()
+        llm_reply = response.json()["choices"][0]["message"]["content"]
+        
+        if llm_reply.strip().upper() == "OK":
+            return {"valid": True, "message": "Validation Successful"}
+        else:
+            return {"valid": False, "message": f"LLM Feedback: {llm_reply}"}
+            
+    except Exception as e:
+        return {"valid": False, "message": f"LLM Validation Failed: {str(e)}"}
+
+@router.post("/extraction-rules/save")
+async def save_extraction_rules(data: dict = Body(...)):
+    content = data.get("content", "")
+    if not content:
+        raise HTTPException(status_code=400, detail="Content is required")
+        
+    try:
+        # Final safety check
+        yaml.safe_load(content)
+        
+        file_path = Path("extraction_examples.yaml")
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to save: {str(e)}")
+
+@router.get("/extraction-prompt/content")
+async def get_extraction_prompt():
+    # Try different paths to be robust
+    paths = [
+        Path("data/prompts/graph_extraction_prompt.txt"),
+        Path("backend/data/prompts/graph_extraction_prompt.txt"),
+        Path("/app/data/prompts/graph_extraction_prompt.txt")
+    ]
     
-    store.entities = new_entities
-    store.save()
+    file_path = None
+    for p in paths:
+        if p.exists():
+            file_path = p
+            break
+            
+    if not file_path:
+        return {"content": "Prompt file not found."}
     
-    return {"ok": True, "count": len(store.entities)}
+    with open(file_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    return {"content": content}
+
+@router.post("/extraction-prompt/save")
+async def save_extraction_prompt(data: dict = Body(...)):
+    content = data.get("content", "")
+    if not content:
+        raise HTTPException(status_code=400, detail="Content is required")
+        
+    # Same logic to find path
+    paths = [
+        Path("data/prompts/graph_extraction_prompt.txt"),
+        Path("backend/data/prompts/graph_extraction_prompt.txt"),
+        Path("/app/data/prompts/graph_extraction_prompt.txt")
+    ]
+    
+    file_path = paths[0] # Default
+    for p in paths:
+        if p.exists():
+            file_path = p
+            break
+    
+    try:
+        # Create directory if it doesn't exist
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to save: {str(e)}")

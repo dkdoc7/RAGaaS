@@ -23,7 +23,11 @@ class RetrievalRequest(BaseModel):
     
     # Graph Search
     enable_graph_search: bool = False
-    graph_hops: int = 1
+    graph_hops: int = 2
+    enable_inverse_search: bool = False
+    inverse_extraction_mode: str = "auto"
+    use_relation_filter: bool = True
+    use_raw_log: bool = False
     
     # Brute Force
     use_brute_force: bool = False

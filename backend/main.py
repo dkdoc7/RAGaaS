@@ -1,7 +1,20 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 app = FastAPI(title="RAG Management System API")
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    import json
+    print(f"Validation error: {exc}")
+    try:
+        body = await request.body()
+        print(f"Request body: {body.decode()}")
+    except Exception:
+        pass
+    return JSONResponse(status_code=422, content={"detail": exc.errors(), "body": str(exc)})
 
 # CORS
 app.add_middleware(

@@ -40,6 +40,7 @@ interface ChatInterfaceProps {
     inverseExtractionMode?: 'always' | 'auto';
     // Graph Relation Filter (Neo4j)
     useRelationFilter?: boolean;
+    useRawLog?: boolean;
     onChunksReceived: (chunks: any[]) => void;
 }
 
@@ -65,6 +66,7 @@ export default function ChatInterface({
     enableInverseSearch,
     inverseExtractionMode,
     useRelationFilter,
+    useRawLog,
     onChunksReceived
 }: ChatInterfaceProps) {
     const [messages, setMessages] = useState<Message[]>([]);
@@ -144,14 +146,15 @@ export default function ChatInterface({
                 ann_threshold: annThreshold,
                 // Graph Settings
                 enable_graph_search: enableGraphSearch,
-                graph_hops: graphHops,
+                graph_hops: Number(graphHops) || 2,
                 // 2-Stage Settings
                 use_brute_force: is2Stage,
                 brute_force_top_k: bruteForceTopK,
                 brute_force_threshold: bruteForceThreshold,
                 enable_inverse_search: enableInverseSearch,
                 inverse_extraction_mode: inverseExtractionMode,
-                use_relation_filter: useRelationFilter
+                use_relation_filter: useRelationFilter,
+                use_raw_log: useRawLog
             });
 
             // Debug: Log the raw API response to verify data integrity

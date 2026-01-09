@@ -28,11 +28,21 @@ class ChatRequest(BaseModel):
     bm25_top_k: int = 50
     use_parallel_search: bool = False
     enable_graph_search: bool = False
-    graph_hops: int = 1
+    graph_hops: int = 2
     use_brute_force: bool = False
     brute_force_top_k: int = 3
     brute_force_threshold: float = 1.5
     use_relation_filter: bool = True  # Neo4j: filter by relationship keywords
+
+    # Fields sent by frontend but not strictly used in backend logic yet (or mapped differently)
+    ann_top_k: int = 5
+    ann_threshold: float = 0.0
+    enable_inverse_search: bool = False
+    inverse_extraction_mode: str = "auto"
+    use_raw_log: bool = False
+    
+    class Config:
+        extra = "ignore"
 
 class ChatResponse(BaseModel):
     answer: str
@@ -73,7 +83,11 @@ async def retrieve_chunks(
         use_llm_keyword_extraction=request.use_llm_keyword_extraction,
         use_multi_pos=request.use_multi_pos,
         bm25_top_k=request.bm25_top_k,
-        use_parallel_search=request.use_parallel_search
+        use_parallel_search=request.use_parallel_search,
+        # Graph specific
+        enable_inverse_search=request.enable_inverse_search,
+        inverse_extraction_mode=request.inverse_extraction_mode,
+        use_relation_filter=request.use_relation_filter
     )
     
     # 2. Reranking (Cross-Encoder)
@@ -170,6 +184,12 @@ async def chat_with_kb(
         raise HTTPException(status_code=404, detail="Knowledge Base not found")
         
     metric_type = kb.metric_type or "COSINE"
+    
+    # Auto-enable graph search if KB has Graph RAG enabled
+    use_graph_search = request.enable_graph_search
+    if kb.enable_graph_rag and kb.graph_backend:
+        use_graph_search = True
+        print(f"[DEBUG] Auto-enabled graph search for KB with graph_backend={kb.graph_backend}")
 
     # 1. Retrieve chunks
     strategy = retrieval_factory.get_strategy(request.strategy)
@@ -179,14 +199,17 @@ async def chat_with_kb(
         request.top_k, 
         metric_type=metric_type, 
         score_threshold=request.score_threshold,
-        enable_graph_search=request.enable_graph_search,
+        enable_graph_search=use_graph_search,
         graph_hops=request.graph_hops,
         graph_backend=kb.graph_backend or "ontology",
         use_llm_keyword_extraction=request.use_llm_keyword_extraction,
         use_multi_pos=request.use_multi_pos,
         bm25_top_k=request.bm25_top_k,
         use_parallel_search=request.use_parallel_search,
-        use_relation_filter=request.use_relation_filter
+        use_relation_filter=request.use_relation_filter,
+        enable_inverse_search=request.enable_inverse_search,
+        inverse_extraction_mode=request.inverse_extraction_mode,
+        use_raw_log=request.use_raw_log
     )
     
     with open("backend_debug.log", "a") as f:

@@ -18,94 +18,106 @@ class Neo4jBackend(GraphBackend):
         **kwargs
     ) -> Dict[str, Any]:
         """Execute graph query on Neo4j using Cypher.
-        
-        Args:
-            use_relation_filter (bool): If True, filter by relationship keywords for more precise results.
-                                        If False, use entity-based traversal for maximum recall.
+        Now uses Doc2Onto's CypherGenerator for LLM-based query generation.
         """
-        use_relation_filter = kwargs.get("use_relation_filter", True)
-
-        if not entities:
+        from app.doc2onto.qa.cypher_generator import CypherGenerator
+        
+        query_text = kwargs.get("query_text", "")
+        if not query_text:
+            logger.warning("[Neo4j] No query text provided for Cypher Generation. Returning empty.")
             return {"chunk_ids": [], "sparql_query": "", "triples": []}
-        
-        # Build query based on use_relation_filter setting
-        if use_relation_filter and relationship_keywords:
-            # Mode 1: Filter by relationship type keywords (more precise, less recall)
-            # Expand keywords to include Korean variations
-            expanded_keywords = []
-            keyword_mapping = {
-                "master": ["스승", "선생", "master", "teacher", "mentor"],
-                "student": ["제자", "학생", "student", "disciple"],
-                "전수": ["전수", "전해", "배우", "가르치", "teach", "learn"],
-                "관계": ["관계", "연결", "relationship", "connection"]
-            }
-            for kw in relationship_keywords:
-                if kw in keyword_mapping:
-                    expanded_keywords.extend(keyword_mapping[kw])
-                else:
-                    expanded_keywords.append(kw)
-            
-            rel_conditions = " OR ".join([f"type(rel) CONTAINS '{kw}'" for kw in expanded_keywords])
-            cypher_query = f"""
-            MATCH (s:Entity)
-            WHERE s.label_ko IN $entities OR s.name IN $entities
-            MATCH path = (s)-[r*1..{hops}]-(o:Entity)
-            WHERE ANY(rel IN relationships(path) WHERE {rel_conditions})
-            MATCH (o)-[:MENTIONED_IN]->(c:Chunk)
-            RETURN DISTINCT c.id as chunk_id, nodes(path) as path_nodes, relationships(path) as path_rels
-            LIMIT 100
-            """
-            print(f"DEBUG: [Neo4j] Using RELATION FILTER mode with expanded keywords: {expanded_keywords}")
-        else:
-            # Mode 2: Entity-based traversal (maximum recall)
-            cypher_query = f"""
-            MATCH (s:Entity)
-            WHERE s.label_ko IN $entities OR s.name IN $entities
-            MATCH path = (s)-[*1..{hops}]-(o:Entity)
-            MATCH (o)-[:MENTIONED_IN]->(c:Chunk)
-            RETURN DISTINCT c.id as chunk_id, nodes(path) as path_nodes, relationships(path) as path_rels
-            LIMIT 100
-            """
-            print(f"DEBUG: [Neo4j] Using ENTITY-ONLY mode (no relation filter)")
-        
-        # Also try to find chunks directly connected to the queried entities
-        # (not just through paths to other entities)
-        direct_query = """
-        MATCH (s:Entity)-[:MENTIONED_IN]->(c:Chunk)
-        WHERE s.name IN $entities
-        RETURN DISTINCT c.id as chunk_id
-        LIMIT 50
-        """
 
-        print(f"DEBUG: Executing Neo4j Query: {cypher_query}")
+        # Use Doc2Onto CypherGenerator
+        print(f"DEBUG: [Neo4j] Generating Cypher using Doc2Onto CypherGenerator for: {query_text}")
+        
+        # Import settings if not already imported at top-level to avoid circular deps if any
+        # But better to import at top if possible. For now, lazy import to be safe inside method or just use it.
+        from app.core.config import settings
         
         try:
-            # Get chunks through entity paths
-            records = neo4j_client.execute_query(cypher_query, {"entities": entities})
-            chunk_ids = [record["chunk_id"] for record in records]
+            generator = CypherGenerator(api_key=settings.OPENAI_API_KEY)
+            # Context can be enriched with extracted entities
+            context = f"관련 엔티티 후보: {', '.join(entities)}" if entities else None
             
-            # Also get directly connected chunks
-            direct_records = neo4j_client.execute_query(direct_query, {"entities": entities})
-            for record in direct_records:
-                chunk_ids.append(record["chunk_id"])
+            gen_result = generator.generate(query_text, context=context)
+            cypher_query = gen_result.get("cypher")
+            thought = gen_result.get("thought")
             
-            chunk_ids = list(set(chunk_ids))  # Deduplicate
-            print(f"DEBUG: Found {len(chunk_ids)} chunks from graph (path: {len(records)}, direct: {len(direct_records)})")
+            print(f"DEBUG: [Neo4j] Generated Cypher: {cypher_query}")
+            print(f"DEBUG: [Neo4j] Reason: {thought}")
             
-            # Get triples that contributed to chunk discovery
+            if not cypher_query:
+                return {"chunk_ids": [], "sparql_query": "Generation Failed", "triples": []}
+                
+            # Execute generated query
+            records = neo4j_client.execute_query(cypher_query)
+            
+            chunk_ids = set()
+            discovered_entities = set()
+            
+            # Parse results (handle various return formats)
+            for record in records:
+                for key, value in record.items():
+                    # If value is a Node
+                    if hasattr(value, "labels"):
+                        labels = set(value.labels)
+                        props = dict(value)
+                        
+                        if "Chunk" in labels:
+                            if "id" in props:
+                                chunk_ids.add(props["id"])
+                        elif "Entity" in labels or "Class" in labels or "Instance" in labels:
+                            # It's an entity, keep track to find chunks later
+                            label_ko = props.get("label_ko") or props.get("name")
+                            if label_ko:
+                                discovered_entities.add(label_ko)
+                    # If value is string (maybe already an ID or Text)
+                    elif isinstance(value, str):
+                        # Simple heuristic: if it looks like a chunk ID (has underscore), try it
+                        if "_" in value and "|" not in value: # doc_id_idx format
+                            # Verify if it's a chunk? Too risky to assume.
+                            pass
+                        else:
+                            # Might be an entity name
+                            discovered_entities.add(value)
+                            
+            print(f"DEBUG: [Neo4j] Direct chunks found: {len(chunk_ids)}")
+            print(f"DEBUG: [Neo4j] Discovered entities from query result: {len(discovered_entities)}")
+            
+            # If we found entities but no chunks, find chunks connected to these entities
+            if discovered_entities:
+                # Limit to prevent explosion
+                target_entities = list(discovered_entities)[:20]
+                
+                chunk_query = """
+                MATCH (e:Entity)-[:MENTIONED_IN]->(c:Chunk)
+                WHERE e.label_ko IN $entities OR e.name IN $entities
+                RETURN DISTINCT c.id as chunk_id
+                LIMIT 50
+                """
+                c_records = neo4j_client.execute_query(chunk_query, {"entities": target_entities})
+                for r in c_records:
+                    chunk_ids.add(r["chunk_id"])
+                    
+            chunk_ids_list = list(chunk_ids)
+            print(f"DEBUG: [Neo4j] Final chunks found: {len(chunk_ids_list)}")
+            
             triples = []
-            if chunk_ids:
-                triples = self._fetch_relevant_triples(chunk_ids)
+            if chunk_ids_list:
+                triples = self._fetch_relevant_triples(chunk_ids_list)
 
             return {
-                "chunk_ids": chunk_ids,
+                "chunk_ids": chunk_ids_list,
                 "sparql_query": cypher_query,
-                "triples": triples
+                "triples": triples,
+                "thought": thought
             }
-            
+
         except Exception as e:
             logger.error(f"Neo4j search failed: {e}")
-            return {"chunk_ids": [], "sparql_query": cypher_query, "triples": []}
+            import traceback
+            traceback.print_exc()
+            return {"chunk_ids": [], "sparql_query": "Error", "triples": []}
 
     def _fetch_relevant_triples(self, chunk_ids: List[str]) -> List[Dict[str, str]]:
         """Fetch triples connected to the discovered chunks for metadata display."""

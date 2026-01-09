@@ -21,8 +21,12 @@ export const kbApi = {
     },
     get: (id: string) => api.get(`/knowledge-bases/${id}`),
     delete: (id: string) => api.delete(`/knowledge-bases/${id}`),
-    getEntities: (id: string) => api.get(`/knowledge-bases/${id}/entities`),
-    updateEntities: (id: string, entities: any[]) => api.put(`/knowledge-bases/${id}/entities`, entities),
+    promote: (id: string, payload: any = {}) => api.post(`/knowledge-bases/${id}/promote`, payload),
+    getExtractionRules: () => api.get('/knowledge-bases/extraction-rules/content'),
+    validateExtractionRules: (content: string) => api.post('/knowledge-bases/extraction-rules/validate', { content }),
+    saveExtractionRules: (content: string) => api.post('/knowledge-bases/extraction-rules/save', { content }),
+    getExtractionPrompt: () => api.get('/knowledge-bases/extraction-prompt/content'),
+    saveExtractionPrompt: (content: string) => api.post('/knowledge-bases/extraction-prompt/save', { content }),
 };
 
 export const docApi = {
@@ -104,6 +108,7 @@ export const retrievalApi = {
         inverse_extraction_mode?: 'always' | 'auto';
         // Graph Relation Filter
         use_relation_filter?: boolean;
+        use_raw_log?: boolean;
     }) => api.post(`/knowledge-bases/${kbId}/chat`, data),
 };
 

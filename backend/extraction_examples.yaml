@@ -1,0 +1,39 @@
+- text: "성기훈은 오일남의 제자이다. 오일남은 깐부라고 불린다."
+  triples:
+    - subject: "성기훈"
+      predicate: "제자"
+      object: "오일남"
+    - subject: "오일남"
+      predicate: "별칭"
+      object: "깐부"
+
+- text: "Duke는 인공지능 분야의 전문가이자 성기훈의 멘토이다."
+  triples:
+    - subject: "Duke"
+      predicate: "전문가"
+      object: "인공지능 분야"
+    - subject: "Duke"
+      predicate: "멘토"
+      object: "성기훈"
+    - subject: "성기훈"
+      predicate: "멘티"
+      object: "Duke"
+
+- text: "무궁화 꽃이 피었습니다 게임은 첫 번째 라운드에서 진행된다. 영희 로봇이 이를 감시한다."
+  triples:
+    - subject: "무궁화 꽃이 피었습니다"
+      predicate: "진행 시점"
+      object: "첫 번째 라운드"
+    - subject: "영희 로봇"
+      predicate: "감시자"
+      object: "무궁화 꽃이 피었습니다"
+
+- text: "오징어 게임의 우승 상금은 456억 원이다."
+  properties:
+    - entity: "오징어 게임"
+      property: "우승 상금"
+      value: "456억 원"
+  triples:
+    - subject: "오징어 게임"
+      predicate: "우승 상금"
+      object: "456억 원"

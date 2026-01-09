@@ -11,6 +11,7 @@ class KnowledgeBaseBase(BaseModel):
     metric_type: str = "COSINE"  # COSINE or IP
     enable_graph_rag: bool = False
     graph_backend: Optional[str] = "ontology"
+    is_promoted: bool = False
 
 class KnowledgeBaseCreate(KnowledgeBaseBase):
     pass
@@ -21,6 +22,8 @@ class KnowledgeBase(KnowledgeBaseBase):
     updated_at: datetime
     document_count: Optional[int] = 0
     total_size: Optional[int] = 0
+    is_promoted: bool = False
+    promotion_metadata: Optional[dict] = {}
 
     class Config:
         from_attributes = True
