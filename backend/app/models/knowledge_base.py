@@ -15,5 +15,7 @@ class KnowledgeBase(Base):
     metric_type = Column(String, default="COSINE")  # COSINE or IP
     enable_graph_rag = Column(Boolean, default=False)
     graph_backend = Column(String, default="ontology", nullable=True) # ontology or neo4j
+    is_promoted = Column(Boolean, default=False)
+    promotion_metadata = Column(JSON, default={})
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

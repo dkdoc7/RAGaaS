@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { kbApi, docApi } from '../services/api';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, HelpCircle } from 'lucide-react';
 import clsx from 'clsx';
 
 import DocumentsTab from '../components/DocumentsTab';
@@ -10,7 +10,6 @@ import ChunksModal from '../components/ChunksModal';
 import HorizontalConfig from '../components/HorizontalConfig';
 import SearchResults from '../components/SearchResults';
 import ConfirmDialog from '../components/ConfirmDialog';
-import EntityListModal from '../components/EntityListModal';
 
 
 export default function KnowledgeBaseDetail() {
@@ -46,6 +45,7 @@ export default function KnowledgeBaseDetail() {
     const [useParallelSearch, setUseParallelSearch] = useState<boolean>(false);
     const [enableInverseSearch, setEnableInverseSearch] = useState(false);
     const [useRelationFilter, setUseRelationFilter] = useState(true);
+    const [useRawLog, setUseRawLog] = React.useState(false);
 
     // Brute Force State (for 2-stage)
     const [bruteForceTopK, setBruteForceTopK] = useState(1);
@@ -63,7 +63,15 @@ export default function KnowledgeBaseDetail() {
     // Delete confirmation modal state
     // Delete confirmation modal state
     const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
-    const [showEntityModal, setShowEntityModal] = useState(false);
+
+    // Promotion Config State
+    const [promoteConfig, setPromoteConfig] = useState({
+        confidence_threshold: 0.85,
+        min_evidence_count: 2,
+        detect_cycles: true,
+        remove_hypothetical: true,
+        version_tag: 'v1.0'
+    });
 
 
     useEffect(() => {
@@ -130,7 +138,7 @@ export default function KnowledgeBaseDetail() {
                 // Other
                 setUseNER(settings.useNER ?? false);
                 setEnableGraphSearch(settings.enableGraphSearch ?? false);
-                setGraphHops(settings.graphHops ?? 2);
+                setGraphHops(Number(settings.graphHops) || 2);
                 setBruteForceTopK(settings.bruteForceTopK ?? 1);
                 setBruteForceThreshold(settings.bruteForceThreshold ?? 1.5);
                 setEnableInverseSearch(settings.enableInverseSearch ?? false);
@@ -199,6 +207,18 @@ export default function KnowledgeBaseDetail() {
             setKb(response.data);
         } catch (error) {
             console.error('Failed to load KB:', error);
+        }
+    };
+
+    const handlePromote = async () => {
+        if (!id) return;
+        try {
+            await kbApi.promote(id, { config: promoteConfig });
+            await loadKB(); // Refresh KB data
+            alert('Promotion updated successfully');
+        } catch (error) {
+            console.error('Failed to promote KB:', error);
+            alert('Failed to update promotion status');
         }
     };
 
@@ -284,28 +304,21 @@ export default function KnowledgeBaseDetail() {
                                         fontSize: '0.8rem',
                                         padding: '0.25rem 0.75rem',
                                         fontWeight: 600,
-                                        backgroundColor: kb.graph_backend === 'ontology' ? '#1e40af' : '#166534',
+                                        backgroundColor: kb.graph_backend === 'ontology'
+                                            ? (kb.is_promoted ? '#f97316' : '#3b82f6')
+                                            : '#166534',
                                         color: 'white'
                                     }}
                                 >
-                                    {kb.graph_backend === 'ontology' ? 'Ontology' : 'Graph'}
+                                    {kb.graph_backend === 'ontology'
+                                        ? (kb.is_promoted ? 'Ontology+' : 'Ontology-')
+                                        : 'Graph'}
                                 </span>
-                                <button
-                                    onClick={() => setShowEntityModal(true)}
-                                    className="btn"
-                                    style={{
-                                        padding: '0.25rem 0.75rem',
-                                        height: 'auto',
-                                        fontSize: '0.8rem',
-                                        color: 'white',
-                                        backgroundColor: 'var(--primary)',
-                                        border: 'none',
-                                        borderRadius: '9999px'
-                                    }}
-                                    title="Manage Entities"
-                                >
-                                    Entities
-                                </button>
+                                {kb.graph_backend === 'ontology' && kb.is_promoted && (
+                                    <span style={{ fontWeight: 700, color: 'black', fontSize: '0.8rem' }}>
+                                        {kb.promotion_metadata?.version_tag || 'v1.0'}, {kb.promotion_metadata?.promoted_at ? kb.promotion_metadata.promoted_at.split('T')[0] : 'N/A'}
+                                    </span>
+                                )}
                             </div>
                         )}
                     </div>
@@ -328,12 +341,21 @@ export default function KnowledgeBaseDetail() {
                 >
                     Playground
                 </button>
-                <button
-                    className={clsx('tab', activeTab === 'settings' && 'active')}
-                    onClick={() => setActiveTab('settings')}
-                >
-                    Settings
-                </button>
+                {kb.graph_backend === 'ontology' ? (
+                    <button
+                        className={clsx('tab', activeTab === 'promote' && 'active')}
+                        onClick={() => setActiveTab('promote')}
+                    >
+                        Promote
+                    </button>
+                ) : (
+                    <button
+                        className={clsx('tab', activeTab === 'settings' && 'active')}
+                        onClick={() => setActiveTab('settings')}
+                    >
+                        Settings
+                    </button>
+                )}
             </div>
 
             {/* Tab Content */}
@@ -394,8 +416,11 @@ export default function KnowledgeBaseDetail() {
                         setInverseExtractionMode={setInverseExtractionMode}
                         chunkingStrategy={kb.chunking_strategy}
                         graphBackend={kb.graph_backend}
+                        useRawLog={useRawLog}
+                        setUseRawLog={setUseRawLog}
                         useRelationFilter={useRelationFilter}
                         setUseRelationFilter={setUseRelationFilter}
+                        promotionMetadata={kb.is_promoted ? kb.promotion_metadata : undefined}
                     />
 
                     {/* Bottom: Split View */}
@@ -424,6 +449,7 @@ export default function KnowledgeBaseDetail() {
                                 inverseExtractionMode={inverseExtractionMode}
                                 useParallelSearch={useParallelSearch}
                                 useRelationFilter={useRelationFilter}
+                                useRawLog={useRawLog}
                                 onChunksReceived={setRetrievedChunks}
                             />
                         </div>
@@ -431,6 +457,94 @@ export default function KnowledgeBaseDetail() {
                         {/* Right: Results */}
                         <div style={{ overflow: 'hidden', height: '100%', minHeight: 0 }}>
                             <SearchResults chunks={retrievedChunks} />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'promote' && (
+                <div className="card" style={{ maxWidth: '600px' }}>
+                    <h3 style={{ marginTop: 0 }}>Ontology Promotion</h3>
+                    <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+                        Configure parameters to promote the Knowledge Graph to a stable Ontology (OWL).
+                    </p>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Version Tag</label>
+                            <input
+                                className="input"
+                                value={promoteConfig.version_tag}
+                                onChange={e => setPromoteConfig({ ...promoteConfig, version_tag: e.target.value })}
+                            />
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '1rem' }}>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                                    <span style={{ fontWeight: 500 }}>Confidence Threshold</span>
+                                    <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{promoteConfig.confidence_threshold.toFixed(2)}</span>
+                                </div>
+                                <input
+                                    type="range" step="0.05" min="0" max="1.0"
+                                    style={{ width: '100%', cursor: 'pointer' }}
+                                    value={promoteConfig.confidence_threshold}
+                                    onChange={e => setPromoteConfig({ ...promoteConfig, confidence_threshold: parseFloat(e.target.value) })}
+                                />
+                                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem', lineHeight: 1.3 }}>
+                                    Minimum confidence score (0.0 - 1.0) required for a triple to be promoted.
+                                </p>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                                    <span style={{ fontWeight: 500 }}>Min Evidence Count</span>
+                                    <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{promoteConfig.min_evidence_count}</span>
+                                </div>
+                                <input
+                                    type="range" min="1" max="10" step="1"
+                                    style={{ width: '100%', cursor: 'pointer' }}
+                                    value={promoteConfig.min_evidence_count}
+                                    onChange={e => setPromoteConfig({ ...promoteConfig, min_evidence_count: parseInt(e.target.value) })}
+                                />
+                                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem', lineHeight: 1.3 }}>
+                                    Minimum number of times a fact must appear to be considered valid.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '2.5rem', marginTop: '0.5rem' }}>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 500 }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={promoteConfig.detect_cycles}
+                                        onChange={e => setPromoteConfig({ ...promoteConfig, detect_cycles: e.target.checked })}
+                                    />
+                                    Detect Cycles
+                                </label>
+                                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem', lineHeight: 1.3 }}>
+                                    Identify and handle circular relationships in the graph.
+                                </p>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 500 }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={promoteConfig.remove_hypothetical}
+                                        onChange={e => setPromoteConfig({ ...promoteConfig, remove_hypothetical: e.target.checked })}
+                                    />
+                                    Remove Hypothetical
+                                </label>
+                                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem', lineHeight: 1.3 }}>
+                                    Exclude conditional or uncertain relationships from the ontology.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+                            <button className="btn btn-primary" onClick={handlePromote}>
+                                {kb.is_promoted ? "Update Promotion" : "Run Promotion"}
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -460,12 +574,6 @@ export default function KnowledgeBaseDetail() {
                 onCancel={() => setDeleteDocId(null)}
                 title="Delete Document"
                 message="Are you sure you want to delete this document? This action cannot be undone."
-            />
-
-            <EntityListModal
-                isOpen={showEntityModal}
-                onClose={() => setShowEntityModal(false)}
-                kbId={id!}
             />
         </div>
     );

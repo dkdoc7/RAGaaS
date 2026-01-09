@@ -22,24 +22,55 @@ class GraphRetrievalStrategy(RetrievalStrategy):
         self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
     async def search(self, kb_id: str, query: str, top_k: int, **kwargs) -> List[Dict[str, Any]]:
-        print(f"DEBUG: Graph Search Start for query: {query}")
+        use_raw_log = kwargs.get("use_raw_log", False)
+        trace_logs = []
+        
+        import time
+        from datetime import datetime
+        
+        start_time = time.time()
+        start_dt = datetime.fromtimestamp(start_time).strftime('%Y/%m/%d %H:%M:%S')
+        is_first_log = True
+
+        def log(msg: str):
+            nonlocal is_first_log
+            current_time = time.time()
+            elapsed_ms = int((current_time - start_time) * 1000)
+            
+            # Clean up existing prefix if present to standardize
+            clean_msg = msg.lstrip()
+            if clean_msg.startswith("DEBUG:"):
+                clean_msg = clean_msg[6:].strip()
+            
+            if is_first_log:
+                PREFIX = f"DEBUG: {start_dt} -"
+                is_first_log = False
+                formatted_msg = f"{PREFIX} {clean_msg}"
+            else:
+                formatted_msg = f"DEBUG [{elapsed_ms} ms] : {clean_msg}"
+            
+            print(formatted_msg)
+            if use_raw_log:
+                trace_logs.append(formatted_msg)
+
+        log(f"Graph Search Start for query: {query}")
         
         # 1. Analyze query for semantic understanding
         query_analysis = await self._analyze_query(query)
-        print(f"DEBUG: Query analysis: {query_analysis}")
+        log(f"DEBUG: Query analysis: {query_analysis}")
         
         # 2. Extract Entities from Query
         entities = await self._extract_entities(kb_id, query)
-        print(f"DEBUG: Extracted entities: {entities}")
+        log(f"DEBUG: Extracted entities: {entities}")
         
         # 3. Expand entities - find related entities in graph
         expanded_entities = await self._expand_entities(kb_id, entities)
-        print(f"DEBUG: Expanded entities: {expanded_entities}")
+        log(f"DEBUG: Expanded entities: {expanded_entities}")
         
         all_entities = list(set(entities + expanded_entities))
         
         if not all_entities:
-            print(f"No entities found in query: {query}")
+            log(f"No entities found in query: {query}")
             return []
 
         # 4. SPARQL Search with semantic relationship understanding
@@ -48,14 +79,15 @@ class GraphRetrievalStrategy(RetrievalStrategy):
         # Detect if query asks for multi-hop relationships
         if any(keyword in query.lower() for keyword in ["의 스승의", "의 제자의", "master's master", "student's student"]):
             graph_hops = max(graph_hops, 2)
-            print(f"DEBUG: Detected multi-hop query, setting hops to {graph_hops}")
+            log(f"DEBUG: Detected multi-hop query, setting hops to {graph_hops}")
         
-        print(f"DEBUG: Searching graph with hops={graph_hops}")
+        log(f"DEBUG: Searching graph with hops={graph_hops}")
         graph_backend_type = kwargs.get("graph_backend", "ontology")
         
         # Use Factory to get backend instance
         backend = GraphBackendFactory.get_backend(graph_backend_type)
         
+        # Execute query via backend strategy
         # Execute query via backend strategy
         graph_result = await backend.query(
             kb_id=kb_id,
@@ -63,40 +95,55 @@ class GraphRetrievalStrategy(RetrievalStrategy):
             hops=graph_hops,
             query_type=query_analysis.get("query_type"),
             relationship_keywords=query_analysis.get("relationship_keywords", []),
+            query_text=query,
             **kwargs
         )
         
-        chunk_ids = graph_result["chunk_ids"]
-        print(f"DEBUG: Found {len(chunk_ids)} chunks from graph: {chunk_ids}")
+        # Safely get chunk_ids allowing default empty list if key missing
+        chunk_ids = graph_result.get("chunk_ids", [])
+        if chunk_ids:
+             log(f"DEBUG: Found {len(chunk_ids)} chunks via direct mapping: {chunk_ids}")
+        # Else: Silent, as we will log Entity-Guided step below
         
         # 5. Fetch content from Milvus
         results = []
         if chunk_ids:
             results = await self._fetch_chunks(kb_id, chunk_ids, query, top_k)
         
-        # 6. Fallback: If graph search found nothing, use hybrid search on related content
+        # 6. Graph-Guided Fallback: If SPARQL found entities but no chunks, or if no results at all
+        # We use the entities found by SPARQL (e.g. 'Duke', 'Oh Il-nam') to guide the vector/hybrid search
+        found_graph_entities = graph_result.get("found_entities", [])
+        if found_graph_entities:
+            log(f"DEBUG: Graph discovered new entities: {found_graph_entities}. Using for guided retrieval.")
+            all_entities.extend(found_graph_entities)
+            # Remove duplicates
+            all_entities = list(set(all_entities))
+            
         if not results or (len(results) == 1 and results[0].get("chunk_id") == "GRAPH_METADATA_ONLY"):
-            print("DEBUG: Graph search incomplete, using hybrid fallback")
+            log(f"DEBUG: Graph search incomplete (0 chunks). Performing Entity-Guided Hybrid Search with: {all_entities}")
             fallback_results = await self._fallback_search(kb_id, query, all_entities, top_k)
             if fallback_results:
+                log(f"DEBUG: Entity-Guided Search success! Retrieved {len(fallback_results)} chunks.")
                 results = fallback_results
         
         # 7. Add graph metadata
         metadata = {
-            "sparql_query": graph_result["sparql_query"],
+            "sparql_query": graph_result.get("sparql_query", ""),
             "extracted_entities": entities,
             "expanded_entities": expanded_entities,
-            "triples": graph_result["triples"],
-            "total_chunks_found": len(chunk_ids),
-            "query_analysis": query_analysis
+            "found_graph_entities": found_graph_entities, # Add this for debugging
+            "triples": graph_result.get("triples", []),
+            "total_chunks_found": len(results), # Use final results count (includes Entity-Guided chunks)
+            "query_analysis": query_analysis,
+            "trace_logs": trace_logs
         }
 
         if results and results[0].get("chunk_id") != "GRAPH_METADATA_ONLY":
-            print("DEBUG: Attaching graph metadata to results")
+            log("DEBUG: Attaching graph metadata to results")
             results[0]["graph_metadata"] = metadata
         else:
             # Return dummy result with metadata
-            print("DEBUG: Returning metadata-only result")
+            log("DEBUG: Returning metadata-only result")
             results = [{
                 "chunk_id": "GRAPH_METADATA_ONLY",
                 "content": "",

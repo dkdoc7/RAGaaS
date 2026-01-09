@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api"
     
     # Database
-    DATABASE_URL: str = "sqlite+aiosqlite:///./rag_system.db"
+    DATABASE_URL: str = "sqlite+aiosqlite:////app/data/rag_system.db"
     
     # Milvus
     MILVUS_HOST: str = "localhost"
@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     
     # OpenAI
     OPENAI_API_KEY: str = ""
+
+    # Doc2Onto
+    DOC2ONTO_CONFIG_PATH: str = "doc2onto_config.yaml"
     
     class Config:
         env_file = ".env"

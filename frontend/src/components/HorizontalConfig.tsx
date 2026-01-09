@@ -60,6 +60,11 @@ interface HorizontalConfigProps {
     // KB Info
     chunkingStrategy?: string;
     graphBackend?: string;
+    promotionMetadata?: any;
+
+    // Debug
+    useRawLog?: boolean;
+    setUseRawLog?: (value: boolean) => void;
 }
 
 // Styles
@@ -127,40 +132,32 @@ export default function HorizontalConfig({
     useRelationFilter,
     setUseRelationFilter,
     chunkingStrategy: _chunkingStrategy,  // Reserved for future use
-    graphBackend
+    graphBackend,
+    promotionMetadata,
+    useRawLog,
+    setUseRawLog
 }: HorizontalConfigProps) {
 
     // Determine available strategies based on RAG type
     const isGraphRAG = graphBackend === 'neo4j' || graphBackend === 'ontology';
 
-    // Define strategy options
-    const standardStrategies = [
-        { value: 'ann', label: 'Vector (ANN)' },
-        { value: 'keyword', label: 'Keyword (BM25)' },
-        { value: 'hybrid', label: 'Hybrid (BM25→ANN)' },
-        { value: '2-stage', label: '2 Stage (ANN→Brute Force)' }
-    ];
+    // Auto mode state
+    const [isAutoHops, setIsAutoHops] = React.useState(graphHops === 2);
 
-    const graphStrategies = [
-        { value: 'ann', label: 'Vector (ANN)' },
-        { value: 'keyword', label: 'Keyword (BM25)' },
-        { value: 'hybrid_graph', label: graphBackend === 'neo4j' ? 'Hybrid (Graph→ANN)' : 'Hybrid (Ontology→ANN)' }
-    ];
+    // Auto "Auto" logic for Graph Hops
+    // If graphHops is 2, we consider it "Auto" in this visual representation if default, 
+    // but better to track it. For now, we'll assume "2" is the default safe zone.
 
-    const strategies = isGraphRAG ? graphStrategies : standardStrategies;
-
-    // Determine which sections to show
-    const usesBM25 = searchStrategy === 'keyword' || searchStrategy === 'hybrid';
-    const usesANN = searchStrategy === 'ann' || searchStrategy === 'hybrid' || searchStrategy === '2-stage' || searchStrategy === 'hybrid_graph';
-    const usesGraph = searchStrategy === 'hybrid_graph';
-    const uses2Stage = searchStrategy === '2-stage';
-    const showReranker = !usesGraph;
-    const showNER = !usesGraph;
+    // Custom Slider Style for Orange Zone
+    // Range: 1 to 5. Orange zone starts > 2.
+    // 1 (0%), 2 (25%), 3 (50%), 4 (75%), 5 (100%)
+    // Cutoff at > 2 (e.g., 35%?). 
+    // Let's make 1-2 blue, 3-5 orange. 
+    // Gradient stop at 2.5? (2.5-1)/4 = 37.5%.
+    const sliderBackground = `linear-gradient(to right, #3b82f6 0%, #3b82f6 37.5%, #f97316 37.5%, #f97316 100%)`;
 
     const handleStrategyChange = (newStrategy: string) => {
         setSearchStrategy(newStrategy);
-
-        // Auto-configure based on strategy
         if (newStrategy === 'hybrid_graph') {
             setEnableGraphSearch(true);
         } else {
@@ -168,427 +165,283 @@ export default function HorizontalConfig({
         }
     };
 
+    const handleAutoToggle = (checked: boolean) => {
+        setIsAutoHops(checked);
+        if (checked) {
+            setGraphHops(2); // Set to default Auto value
+        }
+    };
+
     return (
-        <div className="card" style={{ padding: '1rem' }}>
-            <h3 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.1rem', fontWeight: 600 }}>
+        <div className="card" style={{ padding: '1rem', overflowX: 'auto' }}>
+            <h3 style={{ marginTop: 0, marginBottom: '1.2rem', fontSize: '1.1rem', fontWeight: 600 }}>
                 Search Configuration
             </h3>
 
-            <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start' }}>
 
-                {/* Column 1: Search Strategy (Radio Buttons) */}
-                <div style={{ maxWidth: '240px' }}>
-                    <label style={{ ...labelStyle, marginBottom: '0.2rem' }}>Search Strategy</label>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
-                        {strategies.map((s) => (
-                            <label
-                                key={s.value}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.4rem',
-                                    fontSize: '0.85rem',
-                                    cursor: 'pointer',
-                                    padding: '0.15rem 0.4rem',
-                                    borderRadius: '3px',
-                                    backgroundColor: searchStrategy === s.value ? 'var(--bg-secondary)' : 'transparent',
-                                    border: searchStrategy === s.value ? '1px solid var(--primary)' : '1px solid transparent',
-                                    transition: 'all 0.15s'
-                                }}
-                            >
+                {/* Column 1: Search Strategy */}
+                <div style={{ minWidth: '180px' }}>
+                    <label style={{ ...labelStyle, marginBottom: '0.8rem' }}>Search Strategy</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem' }}>
+                            <input
+                                type="radio"
+                                name="searchStrategy"
+                                checked={searchStrategy === 'ann'}
+                                onChange={() => handleStrategyChange('ann')}
+                                style={{ accentColor: 'var(--primary)' }}
+                            />
+                            Vector (ANN)
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem' }}>
+                            <input
+                                type="radio"
+                                name="searchStrategy"
+                                checked={searchStrategy === 'keyword'}
+                                onChange={() => handleStrategyChange('keyword')}
+                                style={{ accentColor: 'var(--primary)' }}
+                            />
+                            Keyword (BM25)
+                        </label>
+                        {(graphBackend === 'ontology' || graphBackend === 'neo4j') && (
+                            <label style={{
+                                display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem',
+                                color: searchStrategy === 'hybrid_graph' ? 'var(--primary)' : 'inherit',
+                                fontWeight: searchStrategy === 'hybrid_graph' ? 500 : 400,
+                                border: searchStrategy === 'hybrid_graph' ? '1px solid var(--primary)' : '1px solid transparent',
+                                padding: '0.2rem 0.4rem',
+                                borderRadius: '4px',
+                                marginLeft: '-0.4rem'
+                            }}>
                                 <input
                                     type="radio"
                                     name="searchStrategy"
-                                    value={s.value}
-                                    checked={searchStrategy === s.value}
-                                    onChange={() => handleStrategyChange(s.value)}
+                                    checked={searchStrategy === 'hybrid_graph'}
+                                    onChange={() => handleStrategyChange('hybrid_graph')}
                                     style={{ accentColor: 'var(--primary)' }}
                                 />
-                                {s.label}
+                                Hybrid ({graphBackend === 'neo4j' ? 'Graph' : 'Ontology'}→ANN)
                             </label>
-                        ))}
+                        )}
+                        {/* Fallback for non-graph or other modes */}
+                        {!isGraphRAG && (
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem' }}>
+                                <input
+                                    type="radio"
+                                    name="searchStrategy"
+                                    checked={searchStrategy === 'hybrid'}
+                                    onChange={() => handleStrategyChange('hybrid')}
+                                    style={{ accentColor: 'var(--primary)' }}
+                                />
+                                Hybrid (BM25→ANN)
+                            </label>
+                        )}
                     </div>
                 </div>
 
-                {/* Column 2-0: Graph Settings (if Graph/Ontology) */}
-                {usesGraph && (
-                    <div style={columnStyle}>
-                        <label style={labelStyle}>
-                            {graphBackend === 'neo4j' ? 'Graph Settings' : 'Ontology Settings'}
-                        </label>
+                {/* Separator */}
+                <div style={{ width: '1px', backgroundColor: 'var(--border)', alignSelf: 'stretch' }} />
 
-                        <div style={{ marginTop: 0 }}>
-                            <label style={{ fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem', color: 'var(--text-secondary)' }}>
-                                <span>Graph Hops</span>
-                                <span style={{ fontWeight: 600, color: graphHops >= 3 ? 'tomato' : 'inherit' }}>{graphHops}</span>
-                            </label>
-                            <input
-                                type="range"
-                                min="1"
-                                max="5"
-                                value={graphHops}
-                                onChange={(e) => setGraphHops(Number(e.target.value))}
-                                style={{ width: '100%', cursor: 'pointer' }}
-                            />
-                            {graphHops >= 3 && (
-                                <p style={{ fontSize: '0.65rem', color: 'tomato', margin: '0.2rem 0' }}>
-                                    ⚠️ High hops may slow search
-                                </p>
-                            )}
-                        </div>
+                {/* Column 2: Ontology Settings */}
+                {isGraphRAG && (
+                    <div style={{ minWidth: '300px' }}>
+                        <label style={{ ...labelStyle, marginBottom: '0.8rem' }}>{graphBackend === 'neo4j' ? 'Graph Settings' : 'Ontology Settings'}</label>
 
-                        {/* Inverse Relations (Ontology only) */}
-                        {graphBackend === 'ontology' && (
-                            <div style={{ marginTop: '0.8rem', borderTop: '1px dashed var(--border)', paddingTop: '0.5rem' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>
+                        <div style={{ display: 'flex', gap: '2rem' }}>
+                            {/* Sub-col 1: Hops */}
+                            <div style={{ width: '140px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                                    <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Graph Hops</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.9rem', cursor: 'pointer' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={isAutoHops}
+                                            onChange={(e) => handleAutoToggle(e.target.checked)}
+                                        />
+                                        Auto
+                                    </label>
+                                    <span style={{ fontWeight: 600, fontSize: '1rem', color: graphHops >= 4 ? '#f97316' : 'var(--primary)' }}>{graphHops}</span>
+                                </div>
+
+                                <div style={{ position: 'relative', height: '24px', display: 'flex', alignItems: 'center' }}>
                                     <input
-                                        type="checkbox"
-                                        checked={enableInverseSearch || false}
-                                        onChange={(e) => setEnableInverseSearch?.(e.target.checked)}
+                                        type="range"
+                                        min="1"
+                                        max="5"
+                                        value={graphHops}
+                                        onChange={(e) => setGraphHops(Number(e.target.value))}
+                                        disabled={isAutoHops}
+                                        className="custom-range"
+                                        style={{
+                                            width: '100%',
+                                            cursor: isAutoHops ? 'not-allowed' : 'pointer',
+                                            height: '6px',
+                                            borderRadius: '3px',
+                                            appearance: 'none',
+                                            outline: 'none',
+                                            opacity: isAutoHops ? 0.5 : 1,
+                                            // Dynamic background logic:
+                                            // 1. Blue progress bar up to current value (val - min) / (max - min)
+                                            // 2. Gray track for safe zone (up to 3)
+                                            // 3. Orange track for danger zone (4 to 5)
+                                            // Range 1-5: 0% at 1, 25% at 2, 50% at 3, 75% at 4, 100% at 5.
+                                            // Danger zone starts at 3.5 (62.5%) visually? Or just simple segments.
+                                            // Let's implement simpler: Blue (progress) | Gray (remaining safe) | Orange (danger)
+                                            // Percentage for progress: ((val - 1) / 4) * 100
+                                            background: `linear-gradient(to right,
+                                                #3b82f6 0%,
+                                                #3b82f6 ${((graphHops - 1) / 4) * 100}%,
+                                                #e2e8f0 ${((graphHops - 1) / 4) * 100}%,
+                                                #e2e8f0 75%,
+                                                #f97316 75%,
+                                                #f97316 100%)`
+                                        }}
                                     />
-                                    Inverse Relations
-                                </label>
-                                {enableInverseSearch && (
-                                    <div style={{ paddingLeft: '1.2rem', marginTop: '0.3rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', cursor: 'pointer' }}>
-                                            <input
-                                                type="radio"
-                                                checked={inverseExtractionMode === 'always'}
-                                                onChange={() => setInverseExtractionMode?.('always')}
-                                            />
-                                            Always
-                                        </label>
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', cursor: 'pointer' }}>
-                                            <input
-                                                type="radio"
-                                                checked={inverseExtractionMode === 'auto'}
-                                                onChange={() => setInverseExtractionMode?.('auto')}
-                                            />
-                                            Auto (LLM)
-                                        </label>
+                                </div>
+                                {graphHops >= 4 && (
+                                    <div style={{
+                                        position: 'absolute',
+                                        marginTop: '0rem',
+                                        color: '#c2410c',
+                                        fontSize: '0.7rem',
+                                        padding: '0.2rem 0.4rem',
+                                        whiteSpace: 'nowrap',
+                                        zIndex: 10
+                                    }}>
+                                        ⚠️ High latency warning
                                     </div>
                                 )}
                             </div>
-                        )}
 
-                        {/* Relation Filter (Neo4j only) */}
-                        {graphBackend === 'neo4j' && (
-                            <div style={{ marginTop: '0.8rem', borderTop: '1px dashed var(--border)', paddingTop: '0.5rem' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>
+                            {/* Sub-col 2: Filters */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 500 }}>
                                     <input
                                         type="checkbox"
                                         checked={useRelationFilter ?? true}
                                         onChange={(e) => setUseRelationFilter?.(e.target.checked)}
                                     />
-                                    Use Relation Filter
+                                    Relation Filter
                                 </label>
-                                <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', margin: '0.3rem 0 0 1.4rem', lineHeight: 1.3 }}>
-                                    {useRelationFilter ?? true
-                                        ? 'Filter by relationship keywords'
-                                        : 'Entity-only search (more results, less precise)'}
-                                </p>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* Column 2-1: BM25 Settings */}
-                {usesBM25 && (
-                    <div style={{ ...columnStyle, maxWidth: '300px' }}>
-                        <label style={labelStyle}>BM25 Settings</label>
-
-                        <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                            {/* Left: Tokenizer Selection */}
-                            <div style={{ flex: 1 }}>
-                                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Tokenizer:</span>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', marginTop: '0.2rem', paddingLeft: '0.2rem' }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 500 }}>
                                         <input
-                                            type="radio"
-                                            checked={bm25Tokenizer === 'llm'}
-                                            onChange={() => setBm25Tokenizer('llm')}
+                                            type="checkbox"
+                                            checked={enableInverseSearch || false}
+                                            onChange={(e) => setEnableInverseSearch?.(e.target.checked)}
                                         />
-                                        LLM <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>(gpt-oss)</span>
+                                        Inverse Relations
                                     </label>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', cursor: 'pointer' }}>
-                                        <input
-                                            type="radio"
-                                            checked={bm25Tokenizer === 'morpho'}
-                                            onChange={() => setBm25Tokenizer('morpho')}
-                                        />
-                                        Morpho <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>(Kiwi)</span>
-                                    </label>
-
-                                    {/* Multi-POS option (only for morpho) */}
-                                    {bm25Tokenizer === 'morpho' && (
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', cursor: 'pointer', paddingLeft: '1rem' }}>
-                                            <input
-                                                type="checkbox"
-                                                checked={useMultiPOS}
-                                                onChange={(e) => setUseMultiPOS(e.target.checked)}
-                                            />
-                                            Multi-POS
-                                            <span
-                                                style={{
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    width: '12px',
-                                                    height: '12px',
-                                                    borderRadius: '50%',
-                                                    backgroundColor: '#fff',
-                                                    border: '1px solid #0ea5e9',
-                                                    color: '#0ea5e9',
-                                                    fontSize: '9px',
-                                                    fontWeight: 700,
-                                                    cursor: 'help',
-                                                    position: 'relative'
-                                                }}
-                                                onMouseEnter={(e) => {
-                                                    const tooltip = e.currentTarget.querySelector('.tooltip-text') as HTMLElement;
-                                                    if (tooltip) tooltip.style.visibility = 'visible';
-                                                }}
-                                                onMouseLeave={(e) => {
-                                                    const tooltip = e.currentTarget.querySelector('.tooltip-text') as HTMLElement;
-                                                    if (tooltip) tooltip.style.visibility = 'hidden';
-                                                }}
-                                            >
-                                                ?
-                                                <span
-                                                    className="tooltip-text"
-                                                    style={{
-                                                        visibility: 'hidden',
-                                                        position: 'absolute',
-                                                        bottom: '120%',
-                                                        left: '50%',
-                                                        transform: 'translateX(-50%)',
-                                                        backgroundColor: '#1e293b',
-                                                        color: '#fff',
-                                                        padding: '5px 8px',
-                                                        borderRadius: '4px',
-                                                        fontSize: '10px',
-                                                        whiteSpace: 'nowrap',
-                                                        zIndex: 1000,
-                                                        boxShadow: '0 2px 6px rgba(0,0,0,0.15)'
-                                                    }}
-                                                >
-                                                    Extract verbs, adjectives
-                                                </span>
-                                            </span>
-                                        </label>
-                                    )}
+                                    <button
+                                        className="btn"
+                                        style={{
+                                            marginLeft: '1.4rem',
+                                            fontSize: '0.8rem',
+                                            padding: '0.3rem 0.6rem',
+                                            backgroundColor: enableInverseSearch ? '#f1f5f9' : '#f8fafc',
+                                            color: enableInverseSearch ? '#475569' : '#94a3b8',
+                                            border: '1px solid #e2e8f0',
+                                            cursor: enableInverseSearch ? 'pointer' : 'not-allowed',
+                                            opacity: enableInverseSearch ? 1 : 0.6
+                                        }}
+                                        onClick={() => alert('Search Inference Prompt configuration not yet implemented.')}
+                                        disabled={!enableInverseSearch}
+                                    >
+                                        Inference Prompt
+                                    </button>
                                 </div>
                             </div>
-
-                            {/* Right: Top K */}
-                            <div style={{ width: '80px' }}>
-                                <label style={{ fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                                    <span>Top K</span>
-                                    <span>{bm25TopK}</span>
-                                </label>
-                                <input
-                                    type="range"
-                                    min="1"
-                                    max="20"
-                                    value={bm25TopK}
-                                    onChange={(e) => setBm25TopK(Number(e.target.value))}
-                                    style={{ width: '100%', cursor: 'pointer' }}
-                                />
-                            </div>
                         </div>
                     </div>
                 )}
 
-                {/* Column 2-2: ANN Settings */}
-                {usesANN && (
-                    <div style={columnStyle}>
-                        <label style={labelStyle}>ANN Settings</label>
+                {isGraphRAG && <div style={{ width: '1px', backgroundColor: 'var(--border)', alignSelf: 'stretch' }} />}
 
-                        <div style={{ display: 'flex', gap: '1rem' }}>
-                            <div style={{ flex: 1 }}>
-                                <label style={{ fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                                    <span>Top K</span>
-                                    <span>{annTopK}</span>
-                                </label>
-                                <input
-                                    type="range"
-                                    min="1"
-                                    max="20"
-                                    value={annTopK}
-                                    onChange={(e) => setAnnTopK(Number(e.target.value))}
-                                    style={{ width: '100%', cursor: 'pointer' }}
-                                />
+                {/* Column 3: ANN Settings */}
+                <div style={{ minWidth: '220px' }}>
+                    <label style={{ ...labelStyle, marginBottom: '0.8rem' }}>ANN Settings</label>
+
+                    <div style={{ display: 'flex', gap: '1.5rem' }}>
+                        {/* Top K */}
+                        <div style={{ width: '80px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                                <span>Top K</span>
+                                <span>{annTopK}</span>
                             </div>
-                            <div style={{ flex: 1 }}>
-                                <label style={{ fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                                    <span>Threshold</span>
-                                    <span>{annThreshold.toFixed(2)}</span>
-                                </label>
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max="1"
-                                    step="0.01"
-                                    value={annThreshold}
-                                    onChange={(e) => setAnnThreshold(Number(e.target.value))}
-                                    style={{ width: '100%', cursor: 'pointer' }}
-                                />
-                            </div>
+                            <input
+                                type="range"
+                                min="1"
+                                max="20"
+                                value={annTopK}
+                                onChange={(e) => setAnnTopK(Number(e.target.value))}
+                                style={{ width: '100%', cursor: 'pointer', accentColor: '#3b82f6' }}
+                            />
                         </div>
 
-                        {searchStrategy === 'hybrid' && useParallelSearch !== undefined && setUseParallelSearch && (
-                            <div style={{ marginTop: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem', borderTop: '1px dashed var(--border)', paddingTop: '0.5rem' }}>
-                                <input
-                                    type="checkbox"
-                                    id="useParallelSearch"
-                                    checked={useParallelSearch}
-                                    onChange={(e) => setUseParallelSearch(e.target.checked)}
-                                    style={{ cursor: 'pointer' }}
-                                />
-                                <label htmlFor="useParallelSearch" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                                    Search in Parallel (RRF)
-                                </label>
+                        {/* Threshold */}
+                        <div style={{ width: '100px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                                <span>Threshold</span>
+                                <span>{annThreshold.toFixed(2)}</span>
                             </div>
-                        )}
+                            <input
+                                type="range"
+                                min="0"
+                                max="1"
+                                step="0.01"
+                                value={annThreshold}
+                                onChange={(e) => setAnnThreshold(Number(e.target.value))}
+                                style={{ width: '100%', cursor: 'pointer', accentColor: '#3b82f6' }}
+                            />
+                        </div>
                     </div>
-                )}
+                </div>
 
-                {/* Column 2-3: Reranker */}
-                {showReranker && (
-                    <div style={columnStyle}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}>
+                <div style={{ width: '1px', backgroundColor: 'var(--border)', alignSelf: 'stretch' }} />
+
+                {/* Column 4: Debug */}
+                <div style={{ minWidth: '150px' }}>
+                    <label style={{ ...labelStyle, marginBottom: '0.8rem' }}>Debug</label>
+                    <div style={{ marginTop: '0.4rem' }}>
+                        <label style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            color: 'var(--text-secondary)'
+                        }}>
                             <input
                                 type="checkbox"
-                                checked={useReranker}
-                                onChange={(e) => setUseReranker(e.target.checked)}
+                                checked={useRawLog ?? false}
+                                onChange={(e) => setUseRawLog?.(e.target.checked)}
                             />
-                            Reranker
+                            Show Raw Log
                         </label>
-
-                        <div style={{ opacity: useReranker ? 1 : 0.4, transition: 'opacity 0.2s', marginTop: '0.5rem' }}>
-                            <div style={{ display: 'flex', gap: '1rem' }}>
-                                <div style={{ flex: 1 }}>
-                                    <label style={{ fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                                        <span>Top K</span>
-                                        <span>{rerankerTopK}</span>
-                                    </label>
-                                    <input
-                                        type="range"
-                                        min="1"
-                                        max="20"
-                                        value={rerankerTopK}
-                                        onChange={(e) => setRerankerTopK(Number(e.target.value))}
-                                        disabled={!useReranker}
-                                        style={{ width: '100%', cursor: useReranker ? 'pointer' : 'not-allowed' }}
-                                    />
-                                </div>
-                                <div style={{ flex: 1 }}>
-                                    <label style={{ fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                                        <span>Threshold</span>
-                                        <span>{rerankerThreshold.toFixed(2)}</span>
-                                    </label>
-                                    <input
-                                        type="range"
-                                        min="0"
-                                        max="1"
-                                        step="0.05"
-                                        value={rerankerThreshold}
-                                        onChange={(e) => setRerankerThreshold(Number(e.target.value))}
-                                        disabled={!useReranker}
-                                        style={{ width: '100%', cursor: useReranker ? 'pointer' : 'not-allowed' }}
-                                    />
-                                </div>
-                            </div>
-
-                            <div style={{ marginTop: '0.5rem' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: useReranker ? 'pointer' : 'not-allowed' }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={useLLMReranker}
-                                        onChange={(e) => setUseLLMReranker(e.target.checked)}
-                                        disabled={!useReranker}
-                                    />
-                                    Use LLM Reranker
-                                </label>
-
-                                {useLLMReranker && useReranker && (
-                                    <div style={{ marginTop: '0.3rem', paddingLeft: '1.2rem' }}>
-                                        <select
-                                            className="input"
-                                            value={llmChunkStrategy}
-                                            onChange={(e) => setLlmChunkStrategy(e.target.value)}
-                                            style={{ fontSize: '0.8rem', padding: '0.2rem 0.4rem' }}
-                                        >
-                                            <option value="full">Full Context</option>
-                                            <option value="limited">Limited Context</option>
-                                            <option value="smart">Smart Selection</option>
-                                        </select>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
                     </div>
-                )}
-
-                {/* Column 2-4: NER Filter */}
-                {showNER && (
-                    <div style={columnStyle}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}>
-                            <input
-                                type="checkbox"
-                                checked={useNER}
-                                onChange={(e) => setUseNER(e.target.checked)}
-                            />
-                            NER Filter
-                        </label>
-                        <p style={descStyle}>
-                            Penalizes results without query entities.
-                        </p>
-                    </div>
-                )}
-
-                {/* Column 2-5: 2-Stage (Brute Force) */}
-                {uses2Stage && (
-                    <div style={columnStyle}>
-                        <label style={labelStyle}>Flat Index (L2)</label>
-                        <p style={{ ...descStyle, marginBottom: '0.5rem' }}>
-                            Exact nearest neighbor search using L2 distance
-                        </p>
-
-                        <div style={{ display: 'flex', gap: '1rem' }}>
-                            <div style={{ flex: 1 }}>
-                                <label style={{ fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                                    <span>Top K</span>
-                                    <span>{bruteForceTopK}</span>
-                                </label>
-                                <input
-                                    type="range"
-                                    min="1"
-                                    max="5"
-                                    value={bruteForceTopK}
-                                    onChange={(e) => setBruteForceTopK(Number(e.target.value))}
-                                    style={{ width: '100%', cursor: 'pointer' }}
-                                />
-                            </div>
-                            <div style={{ flex: 1 }}>
-                                <label style={{ fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                                    <span>Threshold</span>
-                                    <span>{bruteForceThreshold.toFixed(2)}</span>
-                                </label>
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max="2"
-                                    step="0.1"
-                                    value={bruteForceThreshold}
-                                    onChange={(e) => setBruteForceThreshold(Number(e.target.value))}
-                                    style={{ width: '100%', cursor: 'pointer' }}
-                                />
-                            </div>
-                        </div>
-                    </div>
-                )}
+                </div>
             </div>
-        </div>
+            <style>{`
+                input[type=range].custom-range::-webkit-slider-thumb {
+                    -webkit-appearance: none;
+                    height: 16px;
+                    width: 16px;
+                    border-radius: 50%;
+                    background: #3b82f6;
+                    cursor: pointer;
+                    margin-top: -5px; /* Centers thumb on track */
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+                }
+                input[type=range].custom-range::-webkit-slider-runnable-track {
+                    width: 100%;
+                    height: 6px;
+                    cursor: pointer;
+                    border-radius: 3px;
+                }
+            `}</style>
+        </div >
     );
 }

@@ -27,92 +27,15 @@ class IngestionService:
         chunking_config: str = "{}"
     ):
         try:
-            # Doc2Onto Interception
+            # Check if Graph RAG is enabled (Doc2Onto)
+            use_doc2onto = False
+            graph_backend = "ontology"
             async with SessionLocal() as db:
                 result = await db.execute(select(KnowledgeBase).filter(KnowledgeBase.id == kb_id))
                 kb_check = result.scalars().first()
-                
-            if kb_check and kb_check.enable_graph_rag and getattr(kb_check, 'graph_backend', '') in ['neo4j', 'ontology']:
-                import tempfile
-                import os
-                # DocumentStatus is already imported at module level
-
-                # Save temporary file
-                suffix = ".pdf" if filename.endswith(".pdf") else ".txt" 
-                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                    tmp.write(file_content)
-                    tmp_path = tmp.name
-                
-                try:
+                if kb_check and kb_check.enable_graph_rag and getattr(kb_check, 'graph_backend', '') in ['neo4j', 'ontology']:
+                    use_doc2onto = True
                     graph_backend = getattr(kb_check, 'graph_backend', 'ontology')
-                    doc2onto_result = await doc2onto_processor.process_document_full(
-                        file_path=tmp_path,
-                        kb_id=kb_id,
-                        doc_id=doc_id,
-                        graph_backend=graph_backend,
-                        chunking_strategy=chunking_strategy
-                    )
-                    
-                    if doc2onto_result.get("status") == "skipped":
-                        # Explicitly fail if Doc2Onto was required but skipped
-                        raise Exception(f"Doc2Onto pipeline required for backend '{graph_backend}' but was skipped. Reason: {doc2onto_result.get('reason')}")
-
-                    # Update status to COMPLETED
-                    async with SessionLocal() as db:
-                        result = await db.execute(select(Document).filter(Document.id == doc_id))
-                        doc = result.scalars().first()
-                        if doc:
-                            doc.status = DocumentStatus.COMPLETED.value
-                            await db.commit()
-                            
-                            # Broadcast WebSocket notification
-                            from app.core.websocket_manager import manager
-                            await manager.broadcast(kb_id, {
-                                "type": "document_status_update",
-                                "doc_id": doc_id,
-                                "status": DocumentStatus.COMPLETED.value,
-                                "filename": filename
-                            })
-                    return # Exit successfully, skipping standard ingestion
-
-                except Exception as e:
-                    print(f"Error in Doc2Onto processing: {e}")
-                    # Update status to ERROR
-                    async with SessionLocal() as db:
-                        result = await db.execute(select(Document).filter(Document.id == doc_id))
-                        doc = result.scalars().first()
-                        if doc:
-                            doc.status = DocumentStatus.ERROR.value
-                            doc.error_message = str(e) # Optionally save error message if model supports it
-                            await db.commit()
-                            from app.core.websocket_manager import manager
-                            await manager.broadcast(kb_id, {
-                                "type": "document_status_update",
-                                "doc_id": doc_id,
-                                "status": DocumentStatus.ERROR.value,
-                                "filename": filename
-                            })
-                    return
-                except Exception as e:
-                    print(f"Error in Doc2Onto processing: {e}")
-                    # Update status to ERROR
-                    async with SessionLocal() as db:
-                        result = await db.execute(select(Document).filter(Document.id == doc_id))
-                        doc = result.scalars().first()
-                        if doc:
-                            doc.status = DocumentStatus.ERROR.value
-                            await db.commit()
-                            from app.core.websocket_manager import manager
-                            await manager.broadcast(kb_id, {
-                                "type": "document_status_update",
-                                "doc_id": doc_id,
-                                "status": DocumentStatus.ERROR.value,
-                                "filename": filename
-                            })
-                    return
-                finally:
-                    if os.path.exists(tmp_path):
-                        os.remove(tmp_path)
 
             # 1. Parse File
             text = ""
@@ -207,150 +130,82 @@ class IngestionService:
             collection.insert(data)
             collection.flush() # Ensure data is visible
 
-            # 4.5. Graph Ingestion (if enabled) - HYBRID APPROACH
-            # Phase 1: Extract graph from larger sections for better context
-            # Phase 2: Regular chunking happens above, graph links to chunks via entity matching
+            # 4.5. Doc2Onto Graph Ingestion (if enabled)
+            # Doc2Onto handles triple extraction and links to RAGaaS chunks
             
-            async with SessionLocal() as db:
-                result = await db.execute(select(KnowledgeBase).filter(KnowledgeBase.id == kb_id))
-                kb = result.scalars().first()
+            if use_doc2onto and doc2onto_processor.enabled:
+                import tempfile
+                import os
                 
-                if kb and kb.enable_graph_rag:
-                    # Get graph section size from config (default: 6000 chars, ~1500 tokens)
-                    graph_section_size = int(config.get("graph_section_size", 6000))
-                    graph_section_overlap = int(config.get("graph_section_overlap", 500))
+                print(f"[Doc2Onto] Starting graph extraction for {doc_id}...")
+                print(f"[Doc2Onto] Backend: {graph_backend}, Chunks: {len(texts_to_embed)}")
+                
+                # Export RAGaaS chunks to temp file for Doc2Onto
+                chunks_jsonl_path = None
+                tmp_doc_path = None
+                
+                try:
+                    # Create temp directory for this document
+                    tmp_dir = tempfile.mkdtemp(prefix=f"doc2onto_{doc_id}_")
                     
-                    print(f"Graph RAG enabled for KB {kb_id}. Backend: {kb.graph_backend}.")
-                    print(f"Using hybrid approach: section_size={graph_section_size}, overlap={graph_section_overlap}")
-                    
-                    is_neo4j = kb.graph_backend == 'neo4j'
-                    
-                    if not is_neo4j:
-                        # Ensure dataset exists for Fuseki
-                        try:
-                            fuseki_client.create_dataset(kb_id)
-                        except Exception as e:
-                            print(f"Warning: Could not create/verify dataset: {e}")
-                    else:
-                        # Ensure connectivity for Neo4j
-                        if not neo4j_client.verify_connectivity():
-                            print("Warning: Neo4j is not connected. Skipping graph ingestion.")
-
-                    # Phase 1: Split into larger sections for graph extraction
-                    sections = chunking_service.split_into_sections(
-                        text, 
-                        section_size=graph_section_size,
-                        overlap=graph_section_overlap
-                    )
-                    print(f"Split document into {len(sections)} sections for graph extraction")
-                    
-                    # Extract graph from each section
-                    all_triples = []
-                    for i, section_text in enumerate(sections):
-                        section_id = f"{doc_id}_section_{i}"
-                        try:
-                            # Check config for Doc2Onto usage (could be a flag or default)
-                            use_doc2onto = config.get("use_doc2onto", False) or kb.graph_backend == "doc2onto" # Example condition
-                            
-                            if use_doc2onto:
-                                logger.info(f"Using Doc2Onto pipeline for section {i}")
-                                graph_result = await doc2onto_processor.process(
-                                    section_text, section_id, kb_id=kb_id
-                                )
-                                # Normalize result to expected format
-                                triples = graph_result.get("triples", [])
-                                # If doc2onto returns 'rdf_triples' directly, handle it?
-                                # For now assume structured triples
-                                
-                                # Convert to formatting expected below
-                                if not is_neo4j:
-                                     # TODO: Convert structured triples to RDF for Fuseki if needed
-                                     pass
-                            else:
-                                graph_result = await graph_processor.extract_graph_elements(
-                                    section_text, section_id, kb_id, config
-                                )
-                                triples = graph_result.get("structured_triples", [])
-                                if not is_neo4j:
-                                    rdf_triples = graph_result.get("rdf_triples", [])
-                                    if rdf_triples:
-                                        fuseki_client.insert_triples(kb_id, rdf_triples)
-
-                            if is_neo4j:
-                                # Start of accumulation (merging with existing logic)
-                                all_triples.extend(triples)
-                                print(f"Section {i}: extracted {len(triples)} triples")
-                            
-                        except Exception as e:
-                            print(f"Error processing graph for section {i}: {e}")
-                    
-                    # Phase 2: Insert all triples into Neo4j (with deduplication via MERGE)
-                    if is_neo4j and all_triples:
-                        print(f"Inserting {len(all_triples)} total triples into Neo4j...")
-                        
-                        # Link entities to their chunks based on text matching
-                        chunk_ids = [f"{doc_id}_{i}" for i in range(len(texts_to_embed))]
-                        
-                        for triple in all_triples:
-                            try:
-                                # Basic query to create entities and relations
-                                query = """
-                                MERGE (s:Entity {name: $subj})
-                                MERGE (o:Entity {name: $obj})
-                                MERGE (s)-[:RELATION {type: $pred}]->(o)
-                                """
-                                neo4j_client.execute_query(query, {
-                                    "subj": triple["subject"],
-                                    "obj": triple["object"],
-                                    "pred": triple["predicate"]
-                                })
-                            except Exception as e:
-                                print(f"Error inserting triple: {e}")
-                        
-                        # Link entities to chunks where they appear
-                        print("Linking entities to chunks...")
+                    # Export chunks to JSONL
+                    chunks_jsonl_path = os.path.join(tmp_dir, "ragaas_chunks.jsonl")
+                    with open(chunks_jsonl_path, "w", encoding="utf-8") as f:
                         for i, chunk_text in enumerate(texts_to_embed):
-                            chunk_id = chunk_ids[i]
-                            chunk_text_lower = chunk_text.lower()
-                            
-                            # Find entities mentioned in this chunk
-                            for triple in all_triples:
-                                subj = triple["subject"]
-                                obj = triple["object"]
-                                
-                                # Check if entity appears in chunk (case-insensitive)
-                                subj_in_chunk = subj.lower() in chunk_text_lower
-                                obj_in_chunk = obj.lower() in chunk_text_lower
-                                
-                                if subj_in_chunk or obj_in_chunk:
-                                    try:
-                                        link_query = """
-                                        MERGE (c:Chunk {id: $chunk_id})
-                                        """
-                                        if subj_in_chunk:
-                                            link_query += """
-                                            WITH c
-                                            MATCH (s:Entity {name: $subj})
-                                            MERGE (s)-[:MENTIONED_IN]->(c)
-                                            """
-                                        if obj_in_chunk:
-                                            link_query += """
-                                            WITH c
-                                            MATCH (o:Entity {name: $obj})
-                                            MERGE (o)-[:MENTIONED_IN]->(c)
-                                            """
-                                        
-                                        params = {"chunk_id": chunk_id}
-                                        if subj_in_chunk:
-                                            params["subj"] = subj
-                                        if obj_in_chunk:
-                                            params["obj"] = obj
-                                            
-                                        neo4j_client.execute_query(link_query, params)
-                                    except Exception as e:
-                                        pass  # Silently continue on link errors
+                            chunk_data = {
+                                "chunk_id": f"{doc_id}_{i}",
+                                "doc_id": doc_id,
+                                "doc_ver": "v1",
+                                "text": chunk_text,
+                                "chunk_idx": i,
+                                "start_offset": None,  # RAGaaS doesn't track offsets
+                                "end_offset": None,
+                                "section_path": None,
+                                "chunk_hash": ""
+                            }
+                            f.write(json.dumps(chunk_data, ensure_ascii=False) + "\n")
+                    
+                    # Save document to temp file
+                    suffix = ".pdf" if filename.endswith(".pdf") else ".txt"
+                    tmp_doc_path = os.path.join(tmp_dir, f"{doc_id}{suffix}")
+                    with open(tmp_doc_path, "w", encoding="utf-8") as f:
+                        f.write(text)
+                    
+                    # Call Doc2Onto with external chunks
+                    doc2onto_result = await doc2onto_processor.process_document_full(
+                        file_path=tmp_doc_path,
+                        kb_id=kb_id,
+                        doc_id=doc_id,
+                        graph_backend=graph_backend,
+                        chunking_strategy=chunking_strategy,
+                        external_chunks_path=chunks_jsonl_path,
+                        config=config
+                    )
+                    
+                    if doc2onto_result.get("status") == "success":
+                        print(f"[Doc2Onto] Graph extraction completed: {doc2onto_result.get('result', {})}")
+                    elif doc2onto_result.get("status") == "skipped":
+                        print(f"[Doc2Onto] Skipped: {doc2onto_result.get('reason')}. Using fallback LLM extraction.")
+                        # Fallback to legacy extraction if Doc2Onto is skipped
+                        await self._fallback_graph_extraction(
+                            text, doc_id, kb_id, texts_to_embed, graph_backend, config
+                        )
+                    else:
+                        print(f"[Doc2Onto] Unexpected result: {doc2onto_result}")
                         
-                        print(f"Graph ingestion complete for {kb_id}")
+                except Exception as e:
+                    print(f"[Doc2Onto] Error during graph extraction: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # Continue without graph - don't fail the entire ingestion
+                    
+                finally:
+                    # Cleanup temp files
+                    if tmp_dir and os.path.exists(tmp_dir):
+                        import shutil
+                        # Keep for debugging, uncomment to clean up
+                        # shutil.rmtree(tmp_dir, ignore_errors=True)
+                        pass
             
             # 5. Update Status to COMPLETED
             async with SessionLocal() as db:
@@ -389,5 +244,109 @@ class IngestionService:
                         })
             except Exception as db_err:
                 print(f"Error updating document status to ERROR: {str(db_err)}")
+
+    async def _fallback_graph_extraction(
+        self,
+        text: str,
+        doc_id: str,
+        kb_id: str,
+        texts_to_embed: List[str],
+        graph_backend: str,
+        config: dict
+    ):
+        """Fallback to legacy LLM-based graph extraction when Doc2Onto is disabled."""
+        print(f"[Fallback] Using legacy LLM graph extraction for {doc_id}...")
+        
+        graph_section_size = int(config.get("graph_section_size", 6000))
+        graph_section_overlap = int(config.get("graph_section_overlap", 500))
+        
+        is_neo4j = graph_backend == 'neo4j'
+        
+        if not is_neo4j:
+            try:
+                fuseki_client.create_dataset(kb_id)
+            except Exception as e:
+                print(f"Warning: Could not create/verify Fuseki dataset: {e}")
+        
+        sections = chunking_service.split_into_sections(
+            text, 
+            section_size=graph_section_size,
+            overlap=graph_section_overlap
+        )
+        
+        all_triples = []
+        for i, section_text in enumerate(sections):
+            section_id = f"{doc_id}_section_{i}"
+            try:
+                graph_result = await graph_processor.extract_graph_elements(
+                    section_text, section_id, kb_id, config
+                )
+                triples = graph_result.get("structured_triples", [])
+                
+                if not is_neo4j:
+                    rdf_triples = graph_result.get("rdf_triples", [])
+                    if rdf_triples:
+                        fuseki_client.insert_triples(kb_id, rdf_triples)
+                else:
+                    all_triples.extend(triples)
+                    
+            except Exception as e:
+                print(f"Error processing graph for section {i}: {e}")
+        
+        if is_neo4j and all_triples:
+            chunk_ids = [f"{doc_id}_{i}" for i in range(len(texts_to_embed))]
+            
+            for triple in all_triples:
+                try:
+                    query = """
+                    MERGE (s:Entity {name: $subj})
+                    MERGE (o:Entity {name: $obj})
+                    MERGE (s)-[:RELATION {type: $pred}]->(o)
+                    """
+                    neo4j_client.execute_query(query, {
+                        "subj": triple["subject"],
+                        "obj": triple["object"],
+                        "pred": triple["predicate"]
+                    })
+                except Exception as e:
+                    print(f"Error inserting triple: {e}")
+            
+            # Link entities to chunks
+            for i, chunk_text in enumerate(texts_to_embed):
+                chunk_id = chunk_ids[i]
+                chunk_text_lower = chunk_text.lower()
+                
+                for triple in all_triples:
+                    subj = triple["subject"]
+                    obj = triple["object"]
+                    
+                    subj_in_chunk = subj.lower() in chunk_text_lower
+                    obj_in_chunk = obj.lower() in chunk_text_lower
+                    
+                    if subj_in_chunk or obj_in_chunk:
+                        try:
+                            link_query = "MERGE (c:Chunk {id: $chunk_id})"
+                            params = {"chunk_id": chunk_id}
+                            
+                            if subj_in_chunk:
+                                link_query += """
+                                WITH c
+                                MATCH (s:Entity {name: $subj})
+                                MERGE (s)-[:MENTIONED_IN]->(c)
+                                """
+                                params["subj"] = subj
+                            if obj_in_chunk:
+                                link_query += """
+                                WITH c
+                                MATCH (o:Entity {name: $obj})
+                                MERGE (o)-[:MENTIONED_IN]->(c)
+                                """
+                                params["obj"] = obj
+                                
+                            neo4j_client.execute_query(link_query, params)
+                        except:
+                            pass
+            
+            print(f"[Fallback] Graph ingestion complete for {kb_id}")
 
 ingestion_service = IngestionService()

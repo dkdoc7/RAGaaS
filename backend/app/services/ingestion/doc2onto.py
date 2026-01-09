@@ -24,6 +24,12 @@ class Doc2OntoProcessor:
         
         if hasattr(settings, 'DOC2ONTO_CONFIG_PATH') and settings.DOC2ONTO_CONFIG_PATH and os.path.exists(settings.DOC2ONTO_CONFIG_PATH):
             try:
+                # Add app directory to sys.path to allow 'import doc2onto'
+                import sys
+                app_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                if app_dir not in sys.path:
+                    sys.path.append(app_dir)
+
                 from doc2onto.api import Doc2OntoClient
                 self.client = Doc2OntoClient(config_path=settings.DOC2ONTO_CONFIG_PATH)
                 
@@ -60,7 +66,9 @@ class Doc2OntoProcessor:
         kb_id: str, 
         doc_id: str,
         graph_backend: str = "ontology",
-        chunking_strategy: str = "size"
+        chunking_strategy: str = "size",
+        external_chunks_path: Optional[str] = None,
+        config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Process document using the full Doc2Onto pipeline.
@@ -82,24 +90,48 @@ class Doc2OntoProcessor:
             
             print(f"[Doc2Onto] Starting pipeline for {doc_id} (backend={graph_backend}, run_id={run_id})...")
             
+            # Apply runtime config overrides
+            if config and self.client and hasattr(self.client, '_extractor'):
+                extractor = self.client._extractor
+                
+                # Check for OpenAIExtractor-specific attributes
+                if hasattr(extractor, 'confidence_threshold'):
+                     new_conf = float(config.get("confidence_threshold", 0.6))
+                     extractor.confidence_threshold = new_conf
+                     print(f"[Doc2Onto] Overriding confidence_threshold to {new_conf}")
+                     
+                if hasattr(extractor, 'max_candidates'): # Some extractors might use this
+                     new_max = int(config.get("max_candidates_per_chunk", 20))
+                     setattr(extractor, 'max_candidates', new_max) 
+                     print(f"[Doc2Onto] Overriding max_candidates to {new_max}")
+                     
+                # Update extraction params if available in config object
+                if hasattr(self.client.config, 'extraction'):
+                    self.client.config.extraction.confidence_threshold = float(config.get("confidence_threshold", 0.6))
+            
             # Note: Doc2Onto build might need configuration for chunking strategy if supported
             result = self.client.build(
                 input_dir=temp_input_dir,
                 output_dir=output_dir,
-                run_id=run_id
+                run_id=run_id,
+                external_chunks=external_chunks_path
             )
             print(f"[Doc2Onto] Pipeline completed. Stats: {result}")
             
             if graph_backend == "neo4j":
                 await self._load_to_neo4j(output_dir, kb_id, doc_id)
-                # RAGaaS: Create Entity-Chunk connections after Doc2Onto loads triples
-                await self._link_entities_to_chunks(output_dir, kb_id, doc_id)
+                # RAGaaS: Create Entity-Chunk connections
+                await self._link_entities_to_chunks_neo4j(output_dir, kb_id, doc_id)
             else:
                 await self._load_to_fuseki(output_dir, kb_id)
+                # RAGaaS: Create Entity-Chunk connections for Fuseki as well
+                await self._link_entities_to_chunks_fuseki(output_dir, kb_id, doc_id)
             
-            chunks_path = os.path.join(output_dir, "chunks.jsonl")
-            if os.path.exists(chunks_path):
-                await self._load_chunks_to_milvus_adapter(chunks_path, kb_id, doc_id)
+            # Note: Milvus loading in Doc2Onto is redundant when using RAGaaS hybrid approach.
+            # Chunks are already indexed by RAGaaS before calling Doc2Onto.
+            # chunks_path = os.path.join(output_dir, "chunks.jsonl")
+            # if os.path.exists(chunks_path):
+            #     await self._load_chunks_to_milvus_adapter(chunks_path, kb_id, doc_id)
                 
             return {"status": "success", "result": result}
 
@@ -112,65 +144,56 @@ class Doc2OntoProcessor:
                 pass
 
     async def _load_to_fuseki(self, output_dir: str, kb_id: str):
-        from doc2onto.loaders import FusekiLoader
+        """Load TriG files to Fuseki using RAGaaS's fuseki_client for proper auth."""
+        from app.core.fuseki import fuseki_client
+        import requests
+        from requests.auth import HTTPBasicAuth
         
         base_trig = os.path.join(output_dir, "base.trig")
         evidence_trig = os.path.join(output_dir, "evidence.trig")
         
-        fuseki_loader = FusekiLoader(endpoint=settings.FUSEKI_URL, dataset=kb_id)
+        # Use RAGaaS naming convention (kb_ prefix)
+        safe_name = f"kb_{kb_id.replace('-', '_')}"
         
-        print(f"[Doc2Onto] Uploading to Fuseki dataset: {kb_id}")
-        if os.path.exists(base_trig):
-            res = fuseki_loader.upload(base_trig)
-            if not res.get("success"):
-                print(f"[Doc2Onto] Failed to upload base graph: {res.get('message')}")
+        # Ensure dataset exists
+        fuseki_client.create_dataset(kb_id)
         
-        if os.path.exists(evidence_trig):
-            res = fuseki_loader.upload(evidence_trig)
-            if not res.get("success"):
-                print(f"[Doc2Onto] Failed to upload evidence graph: {res.get('message')}")
+        # Upload using GSP with auth
+        gsp_url = f"{settings.FUSEKI_URL}/{safe_name}/data"
+        auth = HTTPBasicAuth("admin", "admin")
+        
+        print(f"[Doc2Onto] Uploading to Fuseki dataset: {safe_name}")
+        
+        for trig_path in [base_trig, evidence_trig]:
+            if os.path.exists(trig_path):
+                try:
+                    with open(trig_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    
+                    response = requests.post(
+                        gsp_url,
+                        data=content.encode("utf-8"),
+                        headers={"Content-Type": "application/trig"},
+                        auth=auth,
+                        timeout=60
+                    )
+                    
+                    if response.status_code in [200, 201, 204]:
+                        print(f"[Doc2Onto] Uploaded {os.path.basename(trig_path)} to Fuseki")
+                    else:
+                        print(f"[Doc2Onto] Failed to upload {os.path.basename(trig_path)}: {response.status_code} {response.text}")
+                except Exception as e:
+                    print(f"[Doc2Onto] Error uploading {trig_path}: {e}")
 
     async def _load_to_neo4j(self, output_dir: str, kb_id: str, doc_id: str):
-        """Load extracted triples to Neo4j using Doc2Onto's CLI load command."""
-        import subprocess
-        
-        print(f"[Doc2Onto] Loading to Neo4j using Doc2Onto CLI load command...")
-        
-        try:
-            # Use Doc2Onto CLI load command for Neo4j loading
-            cmd = [
-                "python3", "-m", "doc2onto.cli", "load",
-                "--in", output_dir,
-                "--backend", "neo4j",
-                "--neo4j", settings.NEO4J_URI,
-                "--neo4j-user", settings.NEO4J_USER,
-                "--neo4j-password", settings.NEO4J_PASSWORD
-            ]
-            
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=120  # 2 minute timeout
-            )
-            
-            if result.returncode == 0:
-                print(f"[Doc2Onto] Neo4j load completed successfully")
-                if result.stdout:
-                    print(f"[Doc2Onto] Output: {result.stdout}")
-            else:
-                print(f"[Doc2Onto] Neo4j load failed with code {result.returncode}")
-                print(f"[Doc2Onto] Error: {result.stderr}")
-                raise Exception(f"CLI load failed: {result.stderr}")
-                
-        except subprocess.TimeoutExpired:
-            print(f"[Doc2Onto] Neo4j load timed out")
-            raise
-        except Exception as e:
-            print(f"[Doc2Onto] Neo4j load error: {e}")
-            raise
+        """
+        Load extracted triples to Neo4j.
+        Falling back to legacy/direct loading since CLI might have path issues in Docker.
+        """
+        print(f"[Doc2Onto] Loading to Neo4j (using direct adapter)...")
+        await self._load_to_neo4j_legacy(output_dir, kb_id, doc_id)
 
-    async def _link_entities_to_chunks(self, output_dir: str, kb_id: str, doc_id: str):
+    async def _link_entities_to_chunks_neo4j(self, output_dir: str, kb_id: str, doc_id: str):
         """Create Entity-Chunk connections in Neo4j (RAGaaS responsibility).
         
         Doc2Onto stores entities and triples, but RAGaaS needs to link them
@@ -183,7 +206,7 @@ class Doc2OntoProcessor:
             print(f"[RAGaaS] No candidates file for entity-chunk linking")
             return
         
-        print(f"[RAGaaS] Creating Entity-Chunk connections...")
+        print(f"[RAGaaS] Creating Entity-Chunk connections (Neo4j)...")
         
         # Collect entities and their source chunks
         entity_chunks = {}  # entity_name -> set of chunk_ids
@@ -192,13 +215,17 @@ class Doc2OntoProcessor:
             for line in f:
                 if not line.strip():
                     continue
-                record = json.loads(line)
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError as e:
+                    print(f"[RAGaaS] JSON parse error in candidates file line: {e}")
+                    continue
                 
                 # Extract entities from triples
                 for triple in record.get("triples", []):
                     source_chunk_id = triple.get("source_chunk_id", "")
                     
-                    # Extract chunk index from source_chunk_id (e.g., "doc|v1|0000" -> 0)
+                    # Extract chunk index from source_chunk_id
                     if isinstance(source_chunk_id, str) and '|' in source_chunk_id:
                         try:
                             chunk_idx = int(source_chunk_id.split('|')[-1])
@@ -224,15 +251,20 @@ class Doc2OntoProcessor:
         for entity_name, chunk_ids in entity_chunks.items():
             for chunk_id in chunk_ids:
                 # Create Chunk node and MENTIONED_IN relationship
-                # Match entity by label_ko (Doc2Onto schema, 언더스코어 변환 포함)
+                # Match entity by multiple possible name properties
+                # We remove the label constraint (e:Entity) to be safe, 
+                # as Doc2Onto might assign specific class labels.
                 cypher = """
                 MERGE (c:Chunk {id: $chunk_id})
                 ON CREATE SET c.kb_id = $kb_id
                 WITH c
-                MATCH (e:Entity)
-                WHERE e.label_ko = $entity_name 
+                MATCH (e)
+                WHERE e.kb_id = $kb_id AND (
+                      e.label_ko = $entity_name 
                    OR e.label_ko = $entity_name_underscore
                    OR e.name = $entity_name
+                   OR e.label = $entity_name
+                )
                 MERGE (e)-[:MENTIONED_IN]->(c)
                 """
                 
@@ -247,12 +279,100 @@ class Doc2OntoProcessor:
                 }
                 
                 try:
+                    # Note: Without a label scan, this might be slow if there are many nodes.
+                    # Ideally we should know the Label used by Doc2Onto (usually 'Entity' or 'OwlThing')
+                    # Adding a hint or fallback if specific label is known would be good.
                     neo4j_client.execute_query(cypher, parameters=params)
                     count += 1
                 except Exception as e:
                     logger.warning(f"Failed to link entity '{entity_name}' to chunk: {e}")
         
-        print(f"[RAGaaS] Created {count} Entity-Chunk connections")
+        print(f"[RAGaaS] Created {count} Entity-Chunk connections in Neo4j")
+
+    async def _link_entities_to_chunks_fuseki(self, output_dir: str, kb_id: str, doc_id: str):
+        """Create Entity-Chunk connections in Fuseki."""
+        from app.core.fuseki import fuseki_client
+        
+        candidates_path = os.path.join(output_dir, "candidates_filtered.jsonl")
+        if not os.path.exists(candidates_path):
+            return
+
+        print(f"[RAGaaS] Creating Entity-Chunk connections (Fuseki)...")
+        
+        entity_chunks = {}
+        with open(candidates_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip(): continue
+                record = json.loads(line)
+                for triple in record.get("triples", []):
+                    source_chunk_id = triple.get("source_chunk_id", "")
+                    if isinstance(source_chunk_id, str) and '|' in source_chunk_id:
+                        try:
+                            chunk_idx = int(source_chunk_id.split('|')[-1])
+                        except:
+                            chunk_idx = 0
+                    else:
+                        chunk_idx = source_chunk_id if isinstance(source_chunk_id, int) else 0
+                    
+                    chunk_id = f"{doc_id}_{chunk_idx}"
+                    
+                    for entity in [triple.get("subject", ""), triple.get("object", "")]:
+                        if entity:
+                            if entity not in entity_chunks:
+                                entity_chunks[entity] = set()
+                            entity_chunks[entity].add(chunk_id)
+                            
+        # For Fuseki, we use SPARQL Update to insert triples
+        # linking the Entity URI (found by label) to the Chunk ID literal.
+        # Predicate: <http://ragaas.com/schema/mentionedIn>
+        
+        count = 0
+        for entity_name, chunk_ids in entity_chunks.items():
+            for chunk_id in chunk_ids:
+                # We try to find the subject ?s that has this label (ko or plain)
+                sparql_update = """
+                PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+                PREFIX ragaas: <http://ragaas.com/schema/>
+                
+                INSERT {
+                    ?s ragaas:mentionedIn ?chunk_id .
+                }
+                WHERE {
+                    ?s rdfs:label ?label .
+                    FILTER(STR(?label) = ?entity_name || STR(?label) = ?entity_name_und)
+                }
+                """
+                
+                # Replace placeholders manually as fuseki_client might not support params in update
+                # Making sure to escape strings safely
+                safe_name = entity_name.replace('"', '\\"')
+                safe_name_und = entity_name.replace(" ", "_").replace('"', '\\"')
+                
+                query = sparql_update.replace("?chunk_id", f'"{chunk_id}"') \
+                                     .replace("?entity_name", f'"{safe_name}"') \
+                                     .replace("?entity_name_und", f'"{safe_name_und}"')
+                
+                try:
+                    # fuseki_client.execute_sparql usually does SELECT, need UPDATE support
+                    # If execute_sparql supports update, good. If not, we might need direct requests.
+                    # Assuming fuseki_client has update capability or we use requests (safe choice)
+                    import requests
+                    from requests.auth import HTTPBasicAuth
+                    
+                    safe_ds_name = f"kb_{kb_id.replace('-', '_')}"
+                    update_url = f"{settings.FUSEKI_URL}/{safe_ds_name}/update"
+                    
+                    requests.post(
+                        update_url, 
+                        data={"update": query},
+                        auth=HTTPBasicAuth("admin", "admin"),
+                        timeout=10
+                    )
+                    count += 1
+                except Exception as e:
+                    print(f"Failed to link entity '{entity_name}' in Fuseki: {e}")
+                    
+        print(f"[RAGaaS] Created {count} Entity-Chunk connections in Fuseki")
 
     async def _load_to_neo4j_legacy(self, output_dir: str, kb_id: str, doc_id: str):
         """Neo4j loading using APOC for dynamic relationship types."""
@@ -274,7 +394,11 @@ class Doc2OntoProcessor:
             for line in f:
                 if not line.strip():
                     continue
-                record = json.loads(line)
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError as e:
+                    print(f"[Doc2Onto] JSON parse error in candidates file line: {e}")
+                    continue
                 for triple in record.get("triples", []):
                     triples.append({
                         "subject": triple.get("subject", ""),

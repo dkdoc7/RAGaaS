@@ -61,8 +61,8 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
     const [description, setDescription] = useState('');
     const [strategy, setStrategy] = useState('size');
     const [config, setConfig] = useState({
-        chunk_size: 1000,
-        overlap: 200,
+        chunk_size: 500,
+        overlap: 100,
         parent_size: 2000,
         child_size: 500,
         parent_overlap: 0,
@@ -139,7 +139,7 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             zIndex: 50
         }} onClick={onClose}>
-            <div className="card" style={{ width: '100%', maxWidth: '600px', maxHeight: '90vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
+            <div className="card" style={{ width: '100%', maxWidth: '710px', maxHeight: '90vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                     <h2 style={{ margin: 0 }}>Create Knowledge Base</h2>
                     <button className="btn" onClick={onClose} style={{ padding: '0.5rem' }}>
@@ -191,39 +191,64 @@ export default function CreateKnowledgeBaseModal({ isOpen, onClose, onCreateComp
                         {enableGraphRag && (
                             <div style={{ marginTop: '1rem', paddingLeft: '2rem', borderTop: '1px solid #e2e8f0', paddingTop: '1rem' }}>
                                 <label style={{ display: 'block', marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>Graph Backend Strategy</label>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
-                                        <input
-                                            type="radio"
-                                            name="graph_backend"
-                                            value="ontology"
-                                            checked={graphBackend === 'ontology'}
-                                            onChange={(e) => setGraphBackend(e.target.value as 'ontology' | 'neo4j')}
-                                            style={{ marginTop: '0.1rem' }}
-                                        />
-                                        <div>
-                                            <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>Using Ontology (Jena+Fuseki)</span>
-                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                                Best for structured hierarchical data and logical inference. Uses Apache Jena Fuseki.
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
+                                    <div
+                                        onClick={() => setGraphBackend('ontology')}
+                                        style={{
+                                            border: graphBackend === 'ontology' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                                            borderRadius: '8px',
+                                            padding: '1rem',
+                                            cursor: 'pointer',
+                                            background: graphBackend === 'ontology' ? '#eff6ff' : 'white',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                                            <input
+                                                type="radio"
+                                                name="graph_backend"
+                                                value="ontology"
+                                                checked={graphBackend === 'ontology'}
+                                                onChange={() => { }} // Controlled via parent div click
+                                                style={{ marginTop: '0.25rem' }}
+                                            />
+                                            <div>
+                                                <div style={{ fontSize: '0.9rem', fontWeight: 600, color: graphBackend === 'ontology' ? 'var(--primary)' : 'var(--text-primary)' }}>Using Ontology</div>
+                                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                                                    (Jena+Fuseki) Best for structured data & inference.
+                                                </div>
                                             </div>
                                         </div>
-                                    </label>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
-                                        <input
-                                            type="radio"
-                                            name="graph_backend"
-                                            value="neo4j"
-                                            checked={graphBackend === 'neo4j'}
-                                            onChange={(e) => setGraphBackend(e.target.value as 'ontology' | 'neo4j')}
-                                            style={{ marginTop: '0.1rem' }}
-                                        />
-                                        <div>
-                                            <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>Using Knowledge Graph (Neo4j)</span>
-                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                                Best for complex, highly connected data with property graph model.
+                                    </div>
+
+                                    <div
+                                        onClick={() => setGraphBackend('neo4j')}
+                                        style={{
+                                            border: graphBackend === 'neo4j' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                                            borderRadius: '8px',
+                                            padding: '1rem',
+                                            cursor: 'pointer',
+                                            background: graphBackend === 'neo4j' ? '#eff6ff' : 'white',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                                            <input
+                                                type="radio"
+                                                name="graph_backend"
+                                                value="neo4j"
+                                                checked={graphBackend === 'neo4j'}
+                                                onChange={() => { }} // Controlled via parent div click
+                                                style={{ marginTop: '0.25rem' }}
+                                            />
+                                            <div>
+                                                <div style={{ fontSize: '0.9rem', fontWeight: 600, color: graphBackend === 'neo4j' ? 'var(--primary)' : 'var(--text-primary)' }}>Using Knowledge Graph</div>
+                                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                                                    (Neo4j) Best for complex connection analysis.
+                                                </div>
                                             </div>
                                         </div>
-                                    </label>
+                                    </div>
                                 </div>
 
                                 {/* Graph Extraction Settings */}

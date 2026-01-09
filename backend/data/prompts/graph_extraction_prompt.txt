@@ -1,0 +1,18 @@
+Analyze the following text and extract key entities and their relationships.
+Return a JSON object with a list of "triples".
+Each triple should have:
+- "subject": Entity name (Person, Org, Location, Concept, etc.)
+- "predicate": Relationship (verb phrase). For Korean text, prefer Korean predicates (e.g., "스승", "제자", "가족", "친구").
+- "object": Entity name (Person, Org, Location, Concept, etc.)
+
+Text:
+{text}
+
+Output format:
+{
+    "triples": [
+        {"subject": "Elon Musk", "predicate": "is CEO of", "object": "SpaceX"},
+        {"subject": "성기훈", "predicate": "스승", "object": "오일남"},
+        ...
+    ]
+}
