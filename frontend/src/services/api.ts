@@ -27,6 +27,7 @@ export const kbApi = {
     saveExtractionRules: (content: string) => api.post('/knowledge-bases/extraction-rules/save', { content }),
     getExtractionPrompt: () => api.get('/knowledge-bases/extraction-prompt/content'),
     saveExtractionPrompt: (content: string) => api.post('/knowledge-bases/extraction-prompt/save', { content }),
+    getQueryPrompt: (type: 'ontology' | 'neo4j' = 'ontology') => api.get('/knowledge-bases/query-prompt/content', { params: { type } }),
 };
 
 export const docApi = {
@@ -109,6 +110,7 @@ export const retrievalApi = {
         // Graph Relation Filter
         use_relation_filter?: boolean;
         use_raw_log?: boolean;
+        custom_query_prompt?: string;
     }) => api.post(`/knowledge-bases/${kbId}/chat`, data),
 };
 

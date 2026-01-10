@@ -69,14 +69,18 @@ SELECT DISTINCT ?teacherLabel WHERE {
         self.llm_model = llm_model
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
 
-    def generate(self, question: str, context: Optional[str] = None, mode: str = "ontology", inverse_relation: str = "auto") -> Dict:
-        """자연어 질문을 SPARQL로 변환"""
+    def generate(self, question: str, context: Optional[str] = None, mode: str = "ontology", inverse_relation: str = "auto", custom_prompt: Optional[str] = None) -> Dict:
+        """자연어 질문을 SPARQL로 변환 (custom_prompt 지원)"""
         
         system_prompt = self.SYSTEM_PROMPT
         
         # Add instruction for inverse relation
         if inverse_relation == "auto" or inverse_relation == "always":
             system_prompt += "\n[추가 지침]\n- 관계 탐색 시 Property Path `|` 와 역방향 `^` 연산자를 적극 활용하여 방향성 문제를 해결하세요 (예: `rel:스승|^rel:제자`)."
+
+        # Add Custom Prompt (User Override)
+        if custom_prompt:
+            system_prompt += f"\n\n[USER CUSTOM INSTRUCTIONS (PRIORITY OVERRIDE)]\n{custom_prompt}\n"
 
         user_content = f"사용자 질문: {question}"
         if context:

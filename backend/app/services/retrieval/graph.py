@@ -139,8 +139,9 @@ class GraphRetrievalStrategy(RetrievalStrategy):
         }
 
         if results and results[0].get("chunk_id") != "GRAPH_METADATA_ONLY":
-            log("DEBUG: Attaching graph metadata to results")
-            results[0]["graph_metadata"] = metadata
+            log(f"DEBUG: Attaching graph metadata to {len(results)} results")
+            for res in results:
+                res["graph_metadata"] = metadata
         else:
             # Return dummy result with metadata
             log("DEBUG: Returning metadata-only result")

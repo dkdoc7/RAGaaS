@@ -65,6 +65,9 @@ interface HorizontalConfigProps {
     // Debug
     useRawLog?: boolean;
     setUseRawLog?: (value: boolean) => void;
+
+    // Callbacks
+    onOpenPromptDialog?: () => void;
 }
 
 // Styles
@@ -135,7 +138,8 @@ export default function HorizontalConfig({
     graphBackend,
     promotionMetadata,
     useRawLog,
-    setUseRawLog
+    setUseRawLog,
+    onOpenPromptDialog
 }: HorizontalConfigProps) {
 
     // Determine available strategies based on RAG type
@@ -317,7 +321,7 @@ export default function HorizontalConfig({
                             </div>
 
                             {/* Sub-col 2: Filters */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 500 }}>
                                     <input
                                         type="checkbox"
@@ -326,7 +330,7 @@ export default function HorizontalConfig({
                                     />
                                     Relation Filter
                                 </label>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 500 }}>
                                         <input
                                             type="checkbox"
@@ -338,19 +342,18 @@ export default function HorizontalConfig({
                                     <button
                                         className="btn"
                                         style={{
-                                            marginLeft: '1.4rem',
+                                            marginLeft: '0',
                                             fontSize: '0.8rem',
                                             padding: '0.3rem 0.6rem',
-                                            backgroundColor: enableInverseSearch ? '#f1f5f9' : '#f8fafc',
-                                            color: enableInverseSearch ? '#475569' : '#94a3b8',
+                                            backgroundColor: '#f1f5f9',
+                                            color: '#475569',
                                             border: '1px solid #e2e8f0',
-                                            cursor: enableInverseSearch ? 'pointer' : 'not-allowed',
-                                            opacity: enableInverseSearch ? 1 : 0.6
+                                            cursor: 'pointer',
+                                            opacity: 1
                                         }}
-                                        onClick={() => alert('Search Inference Prompt configuration not yet implemented.')}
-                                        disabled={!enableInverseSearch}
+                                        onClick={onOpenPromptDialog}
                                     >
-                                        Inference Prompt
+                                        Query Prompt
                                     </button>
                                 </div>
                             </div>

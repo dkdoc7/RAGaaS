@@ -265,6 +265,20 @@ async def save_extraction_rules(data: dict = Body(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to save: {str(e)}")
 
+@router.get("/query-prompt/content")
+async def get_query_prompt_content(type: str = "ontology"):
+    try:
+        if type == "neo4j":
+            from app.doc2onto.qa.cypher_generator import CypherGenerator
+            return {"content": CypherGenerator.SYSTEM_PROMPT}
+        else:
+            from app.doc2onto.qa.sparql_generator import SPARQLGenerator
+            return {"content": SPARQLGenerator.SYSTEM_PROMPT} 
+    except ImportError as e:
+         return {"content": f"Error loading generator: {e}"}
+    except Exception as e:
+         return {"content": f"Error: {e}"}
+
 @router.get("/extraction-prompt/content")
 async def get_extraction_prompt():
     # Try different paths to be robust

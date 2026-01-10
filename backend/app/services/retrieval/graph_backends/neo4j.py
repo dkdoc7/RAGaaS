@@ -39,7 +39,19 @@ class Neo4jBackend(GraphBackend):
             # Context can be enriched with extracted entities
             context = f"관련 엔티티 후보: {', '.join(entities)}" if entities else None
             
-            gen_result = generator.generate(query_text, context=context)
+            custom_prompt = kwargs.get("custom_query_prompt")
+            
+            # Inverse/Bidirectional Logic
+            inv_mode = kwargs.get("inverse_extraction_mode", "auto")
+            if not kwargs.get("enable_inverse_search", True):
+                inv_mode = "none"
+
+            gen_result = generator.generate(
+                query_text, 
+                context=context, 
+                custom_prompt=custom_prompt,
+                inverse_search_mode=inv_mode
+            )
             cypher_query = gen_result.get("cypher")
             thought = gen_result.get("thought")
             
@@ -110,7 +122,8 @@ class Neo4jBackend(GraphBackend):
                 "chunk_ids": chunk_ids_list,
                 "sparql_query": cypher_query,
                 "triples": triples,
-                "thought": thought
+                "thought": thought,
+                "found_entities": list(discovered_entities)
             }
 
         except Exception as e:

@@ -49,7 +49,8 @@ class FusekiBackend(GraphBackend):
                     question=query_text,
                     context=f"Entities: {', '.join(entities)}",
                     mode="ontology",
-                    inverse_relation=inv_mode
+                    inverse_relation=inv_mode,
+                    custom_prompt=kwargs.get("custom_query_prompt")
                 )
                 
                 generated_sparql = gen_result.get("sparql")

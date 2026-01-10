@@ -41,6 +41,7 @@ interface ChatInterfaceProps {
     // Graph Relation Filter (Neo4j)
     useRelationFilter?: boolean;
     useRawLog?: boolean;
+    customQueryPrompt?: string; // Add this
     onChunksReceived: (chunks: any[]) => void;
 }
 
@@ -67,6 +68,7 @@ export default function ChatInterface({
     inverseExtractionMode,
     useRelationFilter,
     useRawLog,
+    customQueryPrompt, // Add Destructuring
     onChunksReceived
 }: ChatInterfaceProps) {
     const [messages, setMessages] = useState<Message[]>([]);
@@ -116,7 +118,8 @@ export default function ChatInterface({
                 enable_graph_search: enableGraphSearch,
                 graph_hops: graphHops,
                 enable_inverse_search: enableInverseSearch,
-                inverse_extraction_mode: inverseExtractionMode
+                inverse_extraction_mode: inverseExtractionMode,
+                custom_query_prompt: customQueryPrompt // Log this
             });
 
             // Determine top_k based on strategy
@@ -154,7 +157,8 @@ export default function ChatInterface({
                 enable_inverse_search: enableInverseSearch,
                 inverse_extraction_mode: inverseExtractionMode,
                 use_relation_filter: useRelationFilter,
-                use_raw_log: useRawLog
+                use_raw_log: useRawLog,
+                custom_query_prompt: customQueryPrompt // Pass to API
             });
 
             // Debug: Log the raw API response to verify data integrity

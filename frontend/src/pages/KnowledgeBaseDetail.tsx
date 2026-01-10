@@ -10,6 +10,7 @@ import ChunksModal from '../components/ChunksModal';
 import HorizontalConfig from '../components/HorizontalConfig';
 import SearchResults from '../components/SearchResults';
 import ConfirmDialog from '../components/ConfirmDialog';
+import PromptDialog from '../components/PromptDialog';
 
 
 export default function KnowledgeBaseDetail() {
@@ -53,6 +54,10 @@ export default function KnowledgeBaseDetail() {
 
     // Chat results state
     const [retrievedChunks, setRetrievedChunks] = useState<any[]>([]);
+
+    // Custom Prompt State
+    const [customQueryPrompt, setCustomQueryPrompt] = useState<string>('');
+    const [isPromptDialogOpen, setIsPromptDialogOpen] = useState(false);
 
     // Chunk viewer state
     const [selectedDoc, setSelectedDoc] = useState<any>(null);
@@ -421,6 +426,7 @@ export default function KnowledgeBaseDetail() {
                         useRelationFilter={useRelationFilter}
                         setUseRelationFilter={setUseRelationFilter}
                         promotionMetadata={kb.is_promoted ? kb.promotion_metadata : undefined}
+                        onOpenPromptDialog={() => setIsPromptDialogOpen(true)}
                     />
 
                     {/* Bottom: Split View */}
@@ -450,6 +456,7 @@ export default function KnowledgeBaseDetail() {
                                 useParallelSearch={useParallelSearch}
                                 useRelationFilter={useRelationFilter}
                                 useRawLog={useRawLog}
+                                customQueryPrompt={customQueryPrompt}
                                 onChunksReceived={setRetrievedChunks}
                             />
                         </div>
@@ -566,6 +573,14 @@ export default function KnowledgeBaseDetail() {
                 isLoading={isLoadingChunks}
                 kbId={id!}
                 onChunkUpdated={() => handleViewChunks(selectedDoc)}
+            />
+
+            <PromptDialog
+                isOpen={isPromptDialogOpen}
+                onClose={() => setIsPromptDialogOpen(false)}
+                initialPrompt={customQueryPrompt}
+                onSave={setCustomQueryPrompt}
+                backendType={kb.graph_backend === 'ontology' ? 'ontology' : 'neo4j'}
             />
 
             <ConfirmDialog
