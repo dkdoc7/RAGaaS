@@ -20,7 +20,7 @@ class Neo4jBackend(GraphBackend):
         """Execute graph query on Neo4j using Cypher.
         Now uses Doc2Onto's CypherGenerator for LLM-based query generation.
         """
-        from app.doc2onto.qa.cypher_generator import CypherGenerator
+        from app.services.retrieval.cypher_generator import CypherGenerator
         
         query_text = kwargs.get("query_text", "")
         if not query_text:
@@ -144,9 +144,9 @@ class Neo4jBackend(GraphBackend):
               AND ((s)-[:MENTIONED_IN]->(:Chunk {id: $chunk_id}) 
                    OR (o)-[:MENTIONED_IN]->(:Chunk {id: $chunk_id}))
             RETURN DISTINCT 
-                COALESCE(s.label_ko, s.name) as subj, 
+                COALESCE(s.label_ko, s.name, "Node(" + elementId(s) + ")") as subj, 
                 type(r) as pred, 
-                COALESCE(o.label_ko, o.name) as obj
+                COALESCE(o.label_ko, o.name, "Node(" + elementId(o) + ")") as obj
             LIMIT 10
             """
             

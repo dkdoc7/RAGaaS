@@ -56,7 +56,12 @@ async def expand_graph(
                 # Process Node N (Center)
                 n_props = dict(n)
                 n_id = n_props.get("name") or n_props.get("label_ko") or str(n.id)
-                n_label = n_props.get("label_ko") or n_props.get("name") or "Unknown"
+                # Label Logic: Check specific properties based on type
+                if "Chunk" in n.labels:
+                     n_label = n_props.get("id") or f"Chunk {n.element_id}"
+                else:
+                     n_label = n_props.get("label_ko") or n_props.get("name") or "Unknown"
+                
                 n_group = list(n.labels)[0] if n.labels else "Entity"
                 
                 if n_id not in nodes:
@@ -65,7 +70,11 @@ async def expand_graph(
                 # Process Node M (Neighbor)
                 m_props = dict(m)
                 m_id = m_props.get("name") or m_props.get("label_ko") or str(m.id)
-                m_label = m_props.get("label_ko") or m_props.get("name") or "Unknown"
+                # Label Logic for neighbor M
+                if "Chunk" in m.labels:
+                     m_label = m_props.get("id") or f"Chunk {m.element_id}"
+                else:
+                     m_label = m_props.get("label_ko") or m_props.get("name") or "Unknown"
                 m_group = list(m.labels)[0] if m.labels else "Entity"
                 
                 if m_id not in nodes:

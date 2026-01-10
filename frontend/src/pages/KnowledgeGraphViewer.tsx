@@ -31,7 +31,9 @@ const GraphViewer: React.FC = () => {
     const kbId = params.get('kb_id');
     const backend = params.get('backend') || 'neo4j';
 
-    const [showLabels, setShowLabels] = useState(false);
+    const [showLabels, setShowLabels] = useState(true);
+    const [showEntityRelationsOnly, setShowEntityRelationsOnly] = useState(false);
+    const [repulsion, setRepulsion] = useState(400); // Default repulsion strength
 
     useEffect(() => {
         if (!entity || !kbId) {
@@ -51,6 +53,7 @@ const GraphViewer: React.FC = () => {
 
                 const processedNodes = data.nodes.map((n: any) => ({
                     ...n,
+                    label: n.group === 'Chunk' ? '[chunk]' : n.label, // Force [chunk] label
                     val: n.id === entity ? 20 : 10,  // Bigger size for center node
                     color: n.id === entity ? '#ff4444' : (n.group === 'Chunk' ? '#4488ff' : '#44ff88')
                 }));
@@ -71,24 +74,57 @@ const GraphViewer: React.FC = () => {
         fetchData();
     }, [entity, kbId, backend]);
 
+    // Compute visible data based on filters
+    const visibleGraphData = React.useMemo(() => {
+        if (!showEntityRelationsOnly) {
+            return graphData;
+        }
+
+        const visibleNodes = graphData.nodes.filter(n => n.group !== 'Chunk');
+        const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+
+        const visibleLinks = graphData.links.filter(l => {
+            const sourceId = typeof l.source === 'object' ? (l.source as any).id : l.source;
+            const targetId = typeof l.target === 'object' ? (l.target as any).id : l.target;
+            return visibleNodeIds.has(sourceId) && visibleNodeIds.has(targetId);
+        });
+
+        return { nodes: visibleNodes, links: visibleLinks };
+    }, [graphData, showEntityRelationsOnly]);
+
     useEffect(() => {
-        if (fgRef.current) {
-            // Apply custom forces dynamically
+        if (fgRef.current && visibleGraphData.nodes.length > 0) {
             const fg = fgRef.current;
 
-            // Stronger repulsion to prevent clustering
-            fg.d3Force('charge').strength(-400).distanceMax(600);
+            // Apply repulsion with current slider value
+            const chargeForce = fg.d3Force('charge');
+            if (chargeForce) {
+                chargeForce.strength(-repulsion).distanceMax(repulsion * 2);
+            }
 
-            // Adjust link distance
-            fg.d3Force('link').distance(100);
+            // Link distance scales with repulsion (so low repulsion = nodes closer together)
+            // At repulsion=10, linkDistance=20; at repulsion=400, linkDistance=100
+            const linkDistance = Math.max(20, repulsion / 4);
+            const linkForce = fg.d3Force('link');
+            if (linkForce) {
+                linkForce.distance(linkDistance);
+            }
 
-            // If possible, add collision (requires d3-force, skipping for now as we don't have d3 imported)
-            // But strong charge usually handles it well enough for small graphs.
-
-            // Re-heat simulation
-            fg.d3ReheatSimulation();
+            // Access the simulation directly and restart with full alpha
+            // ForceGraph2D exposes engine methods - try multiple ways
+            try {
+                // Method 2: Use cooldownTime trick - setting to Infinity then back forces reheat
+                fg.cooldownTime(Infinity);
+                fg.d3ReheatSimulation();
+                setTimeout(() => {
+                    fg.cooldownTime(15000); // Reset to default
+                }, 100);
+            } catch (e) {
+                console.log('Simulation restart error:', e);
+                fg.d3ReheatSimulation();
+            }
         }
-    }, [graphData]);
+    }, [visibleGraphData, repulsion]);
 
     const handleNodeClick = useCallback((node: any) => {
         fgRef.current?.centerAt(node.x, node.y, 1000);
@@ -105,27 +141,56 @@ const GraphViewer: React.FC = () => {
                 <small>Source: {backend}</small>
             </div>
 
-            <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 100, color: '#fff', background: 'rgba(0,0,0,0.7)', padding: '10px', borderRadius: '5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input
-                    type="checkbox"
-                    id="showLabels"
-                    checked={showLabels}
-                    onChange={(e) => setShowLabels(e.target.checked)}
-                    style={{ cursor: 'pointer' }}
-                />
-                <label htmlFor="showLabels" style={{ cursor: 'pointer', fontSize: '0.9rem' }}>Show Labels</label>
+            <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 100, color: '#fff', background: 'rgba(0,0,0,0.7)', padding: '12px', borderRadius: '5px', display: 'flex', flexDirection: 'column', gap: '12px', minWidth: '180px' }}>
+                {/* Repulsion Slider */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '0.85rem', opacity: 0.8 }}>Repulsion: {repulsion}</label>
+                    <input
+                        type="range"
+                        min="80"
+                        max="1000"
+                        step="50"
+                        value={repulsion}
+                        onChange={(e) => setRepulsion(Number(e.target.value))}
+                        style={{ cursor: 'pointer', width: '100%' }}
+                    />
+                </div>
+
+                {/* Show Labels Checkbox */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <input
+                        type="checkbox"
+                        id="showLabels"
+                        checked={showLabels}
+                        onChange={(e) => setShowLabels(e.target.checked)}
+                        style={{ cursor: 'pointer' }}
+                    />
+                    <label htmlFor="showLabels" style={{ cursor: 'pointer', fontSize: '0.9rem' }}>Show Labels</label>
+                </div>
+
+                {/* Show Entity Relations Only Checkbox */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <input
+                        type="checkbox"
+                        id="showEntityRelations"
+                        checked={showEntityRelationsOnly}
+                        onChange={(e) => setShowEntityRelationsOnly(e.target.checked)}
+                        style={{ cursor: 'pointer' }}
+                    />
+                    <label htmlFor="showEntityRelations" style={{ cursor: 'pointer', fontSize: '0.9rem' }}>Entities Only</label>
+                </div>
             </div>
 
             <ForceGraph2D
                 ref={fgRef}
-                graphData={graphData}
+                graphData={visibleGraphData}
                 nodeLabel="label"
                 nodeColor="color"
                 nodeRelSize={8}
 
                 nodeCanvasObject={(node: any, ctx, globalScale) => {
                     const label = node.label;
-                    const fontSize = 12 / globalScale;
+                    const fontSize = 16 / globalScale;
                     const r = node.val ? Math.sqrt(node.val) * 2 : 4;  // rough approximation of nodeRelSize logic
 
                     // Draw Node
@@ -149,8 +214,8 @@ const GraphViewer: React.FC = () => {
                 nodeCanvasObjectMode={() => 'replace'} // We draw everything ourselves
 
                 linkLabel={link => (link as any).label}
-                linkDirectionalArrowLength={4}
-                linkDirectionalArrowRelPos={1}
+                linkDirectionalArrowLength={Math.max(3, repulsion / 100)}
+                linkDirectionalArrowRelPos={0.85}
                 linkWidth={2}
                 linkColor={() => 'rgba(255,255,255,0.4)'}
                 onNodeClick={handleNodeClick}
