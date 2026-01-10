@@ -193,6 +193,9 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                     if "graph_metadata" in res:
                         graph_metadata = res["graph_metadata"]
                 else:
+                    if "graph_metadata" in res and not graph_metadata:
+                        graph_metadata = res["graph_metadata"]
+
                     cid = res["chunk_id"]
                     # Find doc content for graph result
                     # Note: all_docs only has top 10000. If graph result is outside, we might miss content.
@@ -209,8 +212,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                             }
                         else:
                             # Update existing candidate with graph metadata
-                            if "graph_metadata" in res:
-                                candidate_map[cid]["graph_metadata"] = res["graph_metadata"]
+                            candidate_map[cid]["graph_metadata"] = res.get("graph_metadata")
 
         # 5. Vector Scoring (Re-ranking) on Candidates
         # Calculate Cosine Similarity between Query Vector and Candidate Vectors
