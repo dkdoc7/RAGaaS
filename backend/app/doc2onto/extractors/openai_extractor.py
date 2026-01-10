@@ -142,6 +142,11 @@ class OpenAIExtractor(BaseExtractor):
         ABSTRACT_TYPES = ["Concept", "Class", "Category", "Type", "Abstraction", "Role", "Idea"]
         
         for entity in llm_result.get("entities", []):
+            name = entity.get("name", "").strip()
+            # 빈 이름 필터링 (중요)
+            if not name:
+                continue
+                
             entity_type = entity.get("type", "Concept")
             
             # 타입이 추상 개념 리스트에 있거나, 이름 자체가 추상적일 경우 Class로 매핑
@@ -150,7 +155,7 @@ class OpenAIExtractor(BaseExtractor):
             
             if is_abstract:
                 result.classes.append(ClassCandidate(
-                    label=entity.get("name", ""),
+                    label=name,
                     description=entity.get("description", ""),
                     confidence=0.8,
                     source_text=entity.get("description", ""),
@@ -158,7 +163,7 @@ class OpenAIExtractor(BaseExtractor):
                 ))
             else:
                 result.instances.append(InstanceCandidate(
-                    label=entity.get("name", ""),
+                    label=name,
                     class_label=entity_type, # LLM이 추출한 타입을 클래스 타입으로 사용 (예: "Person", "Character")
                     confidence=0.8,
                     source_text=entity.get("description", ""),
@@ -167,47 +172,61 @@ class OpenAIExtractor(BaseExtractor):
         
         # 트리플 변환
         for triple in llm_result.get("triples", []):
+            s = triple.get("subject", "").strip()
+            p = triple.get("predicate", "").strip()
+            o = triple.get("object", "").strip()
+            
+            # 빈 요소가 있는 트리플 필터링
+            if not s or not p or not o:
+                continue
+
             result.triples.append(Triple(
-                subject=triple.get("subject", ""),
-                predicate=triple.get("predicate", ""),
-                object=triple.get("object", ""),
+                subject=s,
+                predicate=p,
+                object=o,
                 confidence=triple.get("confidence", 0.7),
-                source_text=f"{triple.get('subject')} {triple.get('predicate')} {triple.get('object')}",
+                source_text=f"{s} {p} {o}",
                 source_chunk_id=chunk.chunk_id,
             ))
             
             # 관계도 추가
             result.relations.append(RelationCandidate(
-                label=triple.get("predicate", ""),
-                domain_class=triple.get("subject", ""),
-                range_class=triple.get("object", ""),
+                label=p,
+                domain_class=s,
+                range_class=o,
                 confidence=triple.get("confidence", 0.7),
-                source_text=f"{triple.get('subject')} {triple.get('predicate')} {triple.get('object')}",
+                source_text=f"{s} {p} {o}",
                 source_chunk_id=chunk.chunk_id,
             ))
         
         # 속성 변환
         for prop in llm_result.get("properties", []):
+            e_name = prop.get("entity", "").strip()
+            p_name = prop.get("property", "").strip()
+            p_val = prop.get("value", "")
+            
+            if not e_name or not p_name:
+                continue
+
+            if isinstance(p_val, list):
+                p_val = ", ".join(map(str, p_val))
+            
             result.properties.append(PropertyCandidate(
-                label=prop.get("property", ""),
-                domain_class=prop.get("entity", ""),
+                label=p_name,
+                domain_class=e_name,
                 confidence=0.8,
-                source_text=f"{prop.get('entity')}의 {prop.get('property')}는 {prop.get('value')}",
+                source_text=f"{e_name}의 {p_name}는 {p_val}",
                 source_chunk_id=chunk.chunk_id,
             ))
             
             # 속성을 Triple 형태로 변환
-            p_val = prop.get("value", "")
-            if isinstance(p_val, list):
-                p_val = ", ".join(map(str, p_val))
-            
             result.triples.append(Triple(
-                subject=prop.get("entity", ""),
-                predicate=prop.get("property", ""),
+                subject=e_name,
+                predicate=p_name,
                 object=str(p_val),
                 object_is_literal=True,
                 confidence=0.9,  # 속성은 높은 신뢰도 부여
-                source_text=f"{prop.get('entity')}의 {prop.get('property')}는 {prop.get('value')}",
+                source_text=f"{e_name}의 {p_name}는 {p_val}",
                 source_chunk_id=chunk.chunk_id,
             ))
         
