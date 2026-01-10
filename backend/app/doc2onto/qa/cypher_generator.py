@@ -82,13 +82,15 @@ class CypherGenerator:
             # RAGaaS 실행 환경에서 OPENAI_API_KEY가 없을 경우 대비
             pass
 
-    def generate(self, question: str, context: Optional[str] = None, mode: str = "graph") -> Dict:
+    def generate(self, question: str, context: Optional[str] = None, mode: str = "graph", custom_prompt: Optional[str] = None, inverse_search_mode: str = "auto") -> Dict:
         """사용자 질문을 Cypher로 변환
         
         Args:
             question: 자연어 질문
             context: 추가 정보 (예: 스키마 요약, 엔티티 후보 등)
             mode: 현재는 "graph" 모드가 기본입니다.
+            custom_prompt: 사용자 정의 추가 프롬프트 (최우선 적용)
+            inverse_search_mode: 역방향 검색 모드 ("auto", "always", "none")
             
         Returns:
             Cypher 정보를 포함한 딕셔너리
@@ -99,10 +101,19 @@ class CypherGenerator:
         if mode == "graph":
             graph_instruction = """
 [추가 지침]
-- 관계 방향이 데이터 적재 방식에 따라 반대일 수 있으니, 질문의 의도에 맞게 UNION이나 무방향성 검색을 고려하세요.
-- 결과값은 가능한 명확한 이름(label_ko)이나 설명이 포함되도록 하세요.
 """
+            if inverse_search_mode in ["auto", "always"]:
+                graph_instruction += "- 관계 방향이 데이터 적재 방식에 따라 반대일 수 있으니, 무방향성 검색 `(n)-[:REL]-(m)` 또는 양방향 패턴을 적극 활용하세요.\n"
+            else:
+                graph_instruction += "- 관계 방향을 엄격히 준수하세요. 역방향 검색은 수행하지 마세요.\n"
+
+            graph_instruction += "- 결과값은 가능한 명확한 이름(label_ko)이나 설명이 포함되도록 하세요.\n"
+            
             system_prompt += graph_instruction
+
+        # Add Custom Prompt (User Override)
+        if custom_prompt:
+             system_prompt += f"\n\n[USER CUSTOM INSTRUCTIONS (PRIORITY OVERRIDE)]\n{custom_prompt}\n"
 
         user_content = f"사용자 질문: {question}"
         if context:

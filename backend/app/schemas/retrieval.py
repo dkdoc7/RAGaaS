@@ -28,6 +28,7 @@ class RetrievalRequest(BaseModel):
     inverse_extraction_mode: str = "auto"
     use_relation_filter: bool = True
     use_raw_log: bool = False
+    custom_query_prompt: Optional[str] = None
     
     # Brute Force
     use_brute_force: bool = False
