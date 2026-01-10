@@ -9,6 +9,8 @@ from app.core.config import settings
 from app.core.milvus import connect_milvus, create_collection
 from app.services.embedding import embedding_service
 from pymilvus import Collection
+import asyncio
+from functools import partial
 
 logger = logging.getLogger(__name__)
 
@@ -110,12 +112,18 @@ class Doc2OntoProcessor:
                     self.client.config.extraction.confidence_threshold = float(config.get("confidence_threshold", 0.6))
             
             # Note: Doc2Onto build might need configuration for chunking strategy if supported
-            result = self.client.build(
+            # RAGaaS Fix: Run build in executor to avoid blocking the asyncio loop
+            loop = asyncio.get_running_loop()
+            
+            build_func = partial(
+                self.client.build,
                 input_dir=temp_input_dir,
                 output_dir=output_dir,
                 run_id=run_id,
                 external_chunks=external_chunks_path
             )
+            
+            result = await loop.run_in_executor(None, build_func)
             print(f"[Doc2Onto] Pipeline completed. Stats: {result}")
             
             if graph_backend == "neo4j":
@@ -399,7 +407,11 @@ class Doc2OntoProcessor:
                 except json.JSONDecodeError as e:
                     print(f"[Doc2Onto] JSON parse error in candidates file line: {e}")
                     continue
-                for triple in record.get("triples", []):
+                    if not triple.get("subject") or not triple.get("object"):
+                        continue
+                    if triple["subject"] == "Unknown" or triple["object"] == "Unknown":
+                        continue
+                        
                     triples.append({
                         "subject": triple.get("subject", ""),
                         "predicate": triple.get("predicate", ""),

@@ -101,6 +101,7 @@ services:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/rag_system.db
       - PYTHONPATH=/Doc2Onto
     volumes:
+      - ./backend:/app
       - ./backend/data:/app/data
       - ../Doc2Onto:/Doc2Onto
     ports:

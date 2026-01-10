@@ -96,7 +96,7 @@ class FusekiBackend(GraphBackend):
                              for var_name, value_dict in binding.items():
                                  val = value_dict.get("value")
                                  triples.append({
-                                     "subject": "Query Result",
+                                     "subject": "Found Entity",
                                      "predicate": var_name,
                                      "object": val.split("/")[-1] if "/" in val else val
                                  })
@@ -237,8 +237,8 @@ class FusekiBackend(GraphBackend):
             if "rdf-syntax-ns#" in p_uri or "prov#" in p_uri or "evidence/" in p_uri:
                 continue
             
-            s_display = s_label if s_label else s_uri.split("/")[-1].replace("_", " ")
-            o_display = o_label if o_label else o_val.split("/")[-1].replace("_", " ") if o_val.startswith("http") else o_val
+            s_display = s_label if s_label else (s_uri.split("/")[-1].replace("_", " ") if s_uri else "[Unknown URI]")
+            o_display = o_label if o_label else (o_val.split("/")[-1].replace("_", " ") if o_val.startswith("http") else o_val) or "[Unknown Value]"
             p_display = urllib.parse.unquote(p_uri.split("/")[-1].replace("_", " "))
             
             if s_display and p_display and o_display:

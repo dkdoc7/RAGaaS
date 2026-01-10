@@ -269,7 +269,7 @@ async def save_extraction_rules(data: dict = Body(...)):
 async def get_query_prompt_content(type: str = "ontology"):
     try:
         if type == "neo4j":
-            from app.doc2onto.qa.cypher_generator import CypherGenerator
+            from app.services.retrieval.cypher_generator import CypherGenerator
             return {"content": CypherGenerator.SYSTEM_PROMPT}
         else:
             from app.doc2onto.qa.sparql_generator import SPARQLGenerator
